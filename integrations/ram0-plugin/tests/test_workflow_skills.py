@@ -186,3 +186,19 @@ def test_stats_labels_bounded_scan_and_latency():
     source = _skill_source("stats").lower()
     for marker in ("scanned", "limit", "latency", "not a lifetime total"):
         assert marker in source
+
+
+def test_health_is_read_only_by_default_and_cleans_exact_probe():
+    source = _skill_source("health").lower()
+    for marker in ("ram0 config show", "ram0 config test", "explicit approval", "exact id", "cleanup failure"):
+        assert marker in source
+    assert "never print" in source
+
+
+def test_onboard_uses_permanent_setup_without_exports():
+    source = _skill_source("onboard")
+    lowered = source.lower()
+    assert "ram0 setup --url" in lowered and "ram0 config test" in lowered
+    assert "direct mcp" in lowered and "full automation plugin" in lowered
+    assert "export RAM0_API" not in source
+    assert "shell profile" not in lowered
