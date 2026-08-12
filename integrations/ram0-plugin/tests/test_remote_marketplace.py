@@ -94,7 +94,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path]:
     _run(["git", "init", "-b", "main"], environment={**os.environ, "GIT_DIR": str(work / ".git"), "GIT_WORK_TREE": str(work)})
     _run(["git", "-C", str(work), "add", "."], environment=os.environ.copy())
     _run(
-        ["git", "-C", str(work), "-c", "user.name=Ram0", "-c", "user.email=ram0@example.invalid", "commit", "-m", "v1"],
+        ["git", "-C", str(work), "-c", "commit.gpgsign=false", "-c", "user.name=Ram0", "-c", "user.email=ram0@example.invalid", "commit", "-m", "v1"],
         environment=os.environ.copy(),
     )
     bare = tmp_path / "served/market.git"
@@ -119,7 +119,7 @@ def _publish_v2(work: Path, bare: Path) -> None:
         path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
     _run(["git", "-C", str(work), "add", "."], environment=os.environ.copy())
     _run(
-        ["git", "-C", str(work), "-c", "user.name=Ram0", "-c", "user.email=ram0@example.invalid", "commit", "-m", "v2"],
+        ["git", "-C", str(work), "-c", "commit.gpgsign=false", "-c", "user.name=Ram0", "-c", "user.email=ram0@example.invalid", "commit", "-m", "v2"],
         environment=os.environ.copy(),
     )
     _run(["git", "-C", str(work), "push", str(bare), "main"], environment=os.environ.copy())
