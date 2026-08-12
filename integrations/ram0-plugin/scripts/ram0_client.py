@@ -1,3 +1,4 @@
+# Modified for Ram0; see NOTICE and repository history.
 """Small, account-derived REST adapter for the self-hosted Ram0 service."""
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from ram0_config import RAM0_USER_AGENT
 
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
@@ -160,7 +163,7 @@ class Ram0Client:
         if body is not None:
             self._reject_reserved_keys(body)
         data = json.dumps(body, separators=(",", ":")).encode("utf-8") if body is not None else None
-        headers = {"Authorization": f"Bearer {self._api_key}"}
+        headers = {"Authorization": f"Bearer {self._api_key}", "User-Agent": RAM0_USER_AGENT}
         if data is not None:
             headers["Content-Type"] = "application/json"
         request = Request(url, data=data, headers=headers, method=method)

@@ -116,6 +116,7 @@ def test_transport_negotiates_session_and_forwards_json_and_sse_without_changing
     assert all(request["path"] == "/mcp/" for request in server.requests)
     assert [request["body"] for request in posts] == [INITIALIZE, {"jsonrpc": "2.0", "method": "notifications/initialized"}, TOOLS_LIST]
     assert all(request["headers"]["authorization"] == "Bearer adapter-key" for request in server.requests)
+    assert all(request["headers"]["user-agent"].startswith("ram0-plugin/") for request in server.requests)
     assert posts[1]["headers"]["mcp-session-id"] == "session-1"
     assert posts[2]["headers"]["mcp-protocol-version"] == "2025-06-18"
     assert server.requests[-1]["method"] == "DELETE"

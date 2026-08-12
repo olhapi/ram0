@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Ram0 contributors
+# SPDX-License-Identifier: Apache-2.0
 """Protected persistent configuration shared by Ram0 plugin components."""
 
 from __future__ import annotations
@@ -10,6 +12,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+RAM0_USER_AGENT = "ram0-plugin/0.1.0"
 from urllib.parse import urlsplit, urlunsplit
 
 

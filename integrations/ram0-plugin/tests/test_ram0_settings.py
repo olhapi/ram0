@@ -18,9 +18,9 @@ MARKETPLACES = (
 )
 
 
-def test_defaults_are_local_enabled_and_safe_to_display():
+def test_defaults_are_local_enabled_and_safe_to_display(tmp_path):
     """Breaks if plugin defaults disable automation or expose a credential in displayable settings."""
-    settings = load_settings({})
+    settings = load_settings({}, home=tmp_path)
 
     assert settings.api_url == DEFAULT_RAM0_API_URL
     assert settings.api_key is None

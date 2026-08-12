@@ -90,6 +90,7 @@ def test_operations_send_only_bearer_auth_and_safe_payloads(
     assert request["method"] == method
     assert request["path"] == path
     assert [value for key, value in request["headers"].items() if key == "authorization"] == ["Bearer ram0-test-key"]
+    assert request["headers"]["user-agent"].startswith("ram0-plugin/")
     assert ("content-type" in request["headers"]) is (expected_payload is not None)
     assert _payload(request) == expected_payload
     _assert_no_server_owned_fields(expected_payload)

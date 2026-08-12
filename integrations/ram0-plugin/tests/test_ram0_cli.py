@@ -131,6 +131,7 @@ def test_config_test_sends_bearer_to_non_mutating_categories_endpoint(monkeypatc
 
     assert [(request["method"], request["path"]) for request in ram0_server.requests] == [("GET", "/categories")]
     assert ram0_server.requests[0]["headers"]["authorization"] == "Bearer verification-key"
+    assert ram0_server.requests[0]["headers"]["user-agent"].startswith("ram0-plugin/")
     assert "verification-key" not in stdout.getvalue() + stderr.getvalue()
 
 

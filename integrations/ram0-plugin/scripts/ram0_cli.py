@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Ram0 contributors
+# SPDX-License-Identifier: Apache-2.0
 """User-facing Ram0 persistent configuration command."""
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from typing import TextIO
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from ram0_config import Ram0ConfigError, config_path, load_config, update_config, write_config
+from ram0_config import RAM0_USER_AGENT, Ram0ConfigError, config_path, load_config, update_config, write_config
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -52,7 +54,7 @@ def _test_connection(*, home: Path | None, environment: Mapping[str, str] | None
     config = load_config(environment, home=home, require_key=True)
     request = Request(
         f"{config.api_url}/categories",
-        headers={"Authorization": f"Bearer {config.api_key}"},
+        headers={"Authorization": f"Bearer {config.api_key}", "User-Agent": RAM0_USER_AGENT},
         method="GET",
     )
     try:

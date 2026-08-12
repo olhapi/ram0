@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Ram0 contributors
+# SPDX-License-Identifier: Apache-2.0
 """Bridge MCP JSON-RPC over stdio to Ram0 Streamable HTTP."""
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from typing import Any, TextIO
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from ram0_config import Ram0ConfigError, load_config
+from ram0_config import RAM0_USER_AGENT, Ram0ConfigError, load_config
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -49,6 +51,7 @@ class StreamableHttpTransport:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Accept": "application/json, text/event-stream",
+            "User-Agent": RAM0_USER_AGENT,
         }
         if content:
             headers["Content-Type"] = "application/json"
