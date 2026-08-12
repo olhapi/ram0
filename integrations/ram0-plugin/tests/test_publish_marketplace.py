@@ -13,6 +13,7 @@ from publish_marketplace import PublishError, publish_marketplace
 
 
 REPOSITORY = Path(__file__).resolve().parents[3]
+PUBLISH_WORKFLOW = REPOSITORY / ".github/workflows/ram0-plugin-marketplace-publish.yml"
 
 
 def _git(path: Path, *arguments: str) -> str:
@@ -117,3 +118,12 @@ def test_publish_commits_only_generated_tree_and_pushes(tmp_path):
         publish_marketplace(
             REPOSITORY, destination, source_commit, publish=True, expected_remote=str(bare)
         )
+
+
+def test_manual_workflow_uses_a_repository_scoped_deploy_key():
+    workflow = PUBLISH_WORKFLOW.read_text()
+
+    assert "RAM0_MARKETPLACE_DEPLOY_KEY" in workflow
+    assert "ssh-key:" in workflow
+    assert "RAM0_MARKETPLACE_TOKEN" not in workflow
+    assert "git@github.com:olhapi/ram0-plugins.git" in workflow

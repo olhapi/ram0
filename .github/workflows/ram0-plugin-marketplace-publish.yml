@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: olhapi/ram0-plugins
-          token: ${{ secrets.RAM0_MARKETPLACE_TOKEN }}
+          ssh-key: ${{ secrets.RAM0_MARKETPLACE_DEPLOY_KEY }}
           path: distribution
           ref: main
 
@@ -50,6 +50,6 @@ jobs:
           python source/integrations/ram0-plugin/scripts/publish_marketplace.py \
             --destination "$PWD/distribution" \
             --source-commit "$SOURCE_COMMIT" \
-            --expected-remote 'https://github.com/olhapi/ram0-plugins.git' \
+            --expected-remote 'git@github.com:olhapi/ram0-plugins.git' \
             --expected-branch main \
             --publish
