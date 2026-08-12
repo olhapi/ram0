@@ -87,3 +87,19 @@ def test_displaying_memory_results_requires_sensitive_content_sanitization(name)
     assert "before any preview or display" in source
     assert "credentials, raw prompts, transcripts, or code dumps" in source
     assert "[redacted sensitive memory content]" in source
+
+
+def test_export_is_redacted_bounded_and_non_overwriting():
+    source = _skill_source("export").lower()
+    for marker in ("ram0-export-", "scan limit", "redact", "overwrite", "confirm"):
+        assert marker in source
+    assert "complete backup" in source
+
+
+def test_import_previews_final_batch_before_writes():
+    source = _skill_source("import")
+    lowered = source.lower()
+    for classification in ("add", "update", "duplicate", "rejected"):
+        assert classification in lowered
+    assert lowered.index("final batch") < source.index("`ram0:remember`")
+    assert "write nothing" in lowered and "exact id" in lowered
