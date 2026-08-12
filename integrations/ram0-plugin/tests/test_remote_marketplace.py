@@ -113,9 +113,9 @@ def _publish_v2(work: Path, bare: Path) -> None:
         path = work / relative
         document = json.loads(path.read_text())
         if relative.startswith("plugins/"):
-            document["version"] = "0.1.1"
+            document["version"] = "0.1.2"
         else:
-            document["plugins"][0]["version"] = "0.1.1"
+            document["plugins"][0]["version"] = "0.1.2"
         path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
     _run(["git", "-C", str(work), "add", "."], environment=os.environ.copy())
     _run(
@@ -142,7 +142,7 @@ def test_codex_marketplace_upgrade_refreshes_installed_plugin(tmp_path):
         _publish_v2(work, bare)
         _run([codex, "plugin", "marketplace", "upgrade", "ram0-plugins", "--json"], environment=environment)
 
-    assert (installed_path.parent / "0.1.1/VERSION_MARKER").read_text() == "v2\n"
+    assert (installed_path.parent / "0.1.2/VERSION_MARKER").read_text() == "v2\n"
 
 
 def test_claude_native_update_commands_refresh_installed_plugin(tmp_path):

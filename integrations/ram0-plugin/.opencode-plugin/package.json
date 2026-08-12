@@ -1,6 +1,6 @@
 {
   "name": "@ram0/opencode-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Self-hosted Ram0 durable-memory automation for OpenCode",
   "main": "dist/index.js",

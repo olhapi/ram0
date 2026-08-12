@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-RAM0_USER_AGENT = "ram0-plugin/0.1.0"
+RAM0_USER_AGENT = "ram0-plugin/0.1.1"
 from urllib.parse import urlsplit, urlunsplit
 
 
