@@ -1,6 +1,10 @@
-import {describe, expect, test} from "bun:test";
+// Modified for Ram0; see NOTICE and repository history.
+// SPDX-FileCopyrightText: 2026 Ram0 contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import {beforeAll, describe, expect, test} from "bun:test";
 import {createHmac} from "node:crypto";
-import {chmod, mkdir, mkdtemp, readFile, writeFile} from "node:fs/promises";
+import {chmod, mkdir, mkdtemp, readFile, readdir, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import type {Hooks} from "@opencode-ai/plugin";
@@ -13,6 +17,7 @@ import {
 } from "./opencode-ram0.ts";
 import Ram0Plugin from "./opencode-ram0.ts";
 import {Ram0Client} from "./ram0-client.ts";
+import {copySkills, RAM0_SKILL_NAMES} from "./copy-skills.ts";
 
 type Recorded = {url: string; init: RequestInit; body: unknown};
 type AutomaticContextPolicy = {accepted: string[]; rejected: string[]; configured_key_template: string};
@@ -20,6 +25,11 @@ type AutomaticContextPolicy = {accepted: string[]; rejected: string[]; configure
 const AUTOMATIC_CONTEXT_POLICY = JSON.parse(
   await readFile(new URL("../tests/automatic_context_policy.json", import.meta.url), "utf8"),
 ) as AutomaticContextPolicy;
+const EXPECTED_SKILLS = [...RAM0_SKILL_NAMES];
+
+beforeAll(async () => {
+  await copySkills();
+});
 
 function proof(key: string, memory: string): string {
   return createHmac("sha256", key).update(`ram0-auto-context-v1\0${memory}`).digest("hex");
@@ -144,6 +154,37 @@ describe("Ram0 OpenCode lifecycle", () => {
       },
     });
     expect(plugin.tool).toBeUndefined();
+  });
+
+  test("package contains the policy skill and all eleven workflow skills", async () => {
+    const skillsDirectory = new URL("./opencode-skills/", import.meta.url);
+    const pkg = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8"));
+    const packaged = (await readdir(skillsDirectory, {withFileTypes: true}))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+
+    expect(packaged).toEqual(EXPECTED_SKILLS);
+    expect(pkg.files).toContain("opencode-skills");
+    for (const name of packaged) {
+      expect(await readFile(new URL(`${name}/SKILL.md`, skillsDirectory), "utf8")).toContain(`\nname: ${name}\n`);
+    }
+  });
+
+  test("config hook preserves user skill paths exactly and appends its path once", async () => {
+    const plugin = await createRam0Hooks({
+      environment: {RAM0_API_URL: "https://ram0.example.test", RAM0_API_KEY: "already-set-key"},
+      dataDir: await mkdtemp(join(tmpdir(), "ram0-opencode-")),
+    });
+    const userPaths = ["/user/skills", "/user/skills", "/other/skills"];
+    const config = {skills: {paths: [...userPaths]}} as any;
+
+    await plugin.config?.(config);
+    await plugin.config?.(config);
+
+    expect(config.skills.paths.slice(0, userPaths.length)).toEqual(userPaths);
+    expect(config.skills.paths).toHaveLength(userPaths.length + 1);
+    expect(config.skills.paths.at(-1)).toEndWith("opencode-skills");
   });
 
   test("config hook and lifecycle share persistent file configuration", async () => {

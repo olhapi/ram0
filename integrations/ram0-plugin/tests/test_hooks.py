@@ -1,5 +1,7 @@
 """Installed lifecycle contract tests for Claude, Codex, and Cursor."""
 
+# Modified for Ram0; see NOTICE and repository history.
+
 from __future__ import annotations
 
 import json
@@ -11,6 +13,7 @@ import subprocess
 import pytest
 
 from memory_capture import AUTOMATIC_CONTEXT_VERSION, _automatic_context_proof
+from test_workflow_skills import EXPECTED_WORKFLOW_SKILLS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,8 +116,9 @@ def test_supported_client_manifests_launch_the_same_config_aware_stdio_adapter()
         assert '"url"' not in encoded
 
     assert codex_mcp["ram0"] == {
-        "command": "ram0",
-        "args": ["mcp"],
+        "command": "./scripts/mcp_stdio_adapter.py",
+        "args": [],
+        "cwd": ".",
     }
 
 
@@ -235,9 +239,19 @@ def test_real_codex_install_lists_bundled_ram0_mcp_from_isolated_home(tmp_path):
     servers = {item["name"]: item for item in json.loads(listing.stdout)}
     transport = servers["ram0"]["transport"]
     assert transport["type"] == "stdio"
-    assert transport["command"] == "ram0"
-    assert transport["args"] == ["mcp"]
+    assert transport["command"] == "./scripts/mcp_stdio_adapter.py"
+    assert transport["args"] == []
+    assert Path(transport["cwd"]).resolve() == installed_path.resolve()
     assert transport["env"] is None
     assert "${PLUGIN_ROOT}/scripts/" in (installed_path / "hooks" / "codex-hooks.json").read_text()
-    assert (installed_path / "skills" / "ram0-memory" / "SKILL.md").is_file()
+    installed_skills = {
+        path.parent.name for path in (installed_path / "skills").glob("*/SKILL.md")
+    }
+    assert installed_skills == {"ram0-memory", *EXPECTED_WORKFLOW_SKILLS}
     assert "RAM0_API_KEY" not in (codex_home / "config.toml").read_text()
+
+
+def test_session_start_bootstraps_cli_before_memory_retrieval():
+    source = (ROOT / "scripts" / "on_session_start.sh").read_text()
+    assert source.index("bootstrap_cli.py") < source.index("memory_capture.py")
+    assert "|| true" in source

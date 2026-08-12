@@ -1,0 +1,7 @@
+# Modified for Ram0; see NOTICE and repository history.
+# SPDX-FileCopyrightText: 2026 Ram0 contributors
+# SPDX-License-Identifier: Apache-2.0
+
+/dist/
+/node_modules/
+/opencode-skills/

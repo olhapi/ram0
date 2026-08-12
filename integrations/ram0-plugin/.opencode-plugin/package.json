@@ -11,12 +11,17 @@
       "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "opencode-skills"
+  ],
   "scripts": {
-    "test": "bun test",
+    "prepare-skills": "bun run copy-skills.ts",
+    "test": "bun run prepare-skills && bun test",
     "type-check": "tsc --noEmit",
     "clean": "bun -e \"import {rmSync} from 'node:fs'; rmSync('dist',{recursive:true,force:true})\"",
     "verify-exports": "bun -e \"import {existsSync} from 'node:fs'; import pkg from './package.json'; for (const file of [pkg.main,pkg.types,pkg.exports['.'].types,pkg.exports['.'].import]) if (!existsSync(file.replace(/^\\.\\//,''))) throw new Error('missing export '+file)\"",
-    "build": "bun run clean && bun build opencode-ram0.ts --outdir dist --target bun --format esm --entry-naming index.[ext] && tsc --noEmit false --emitDeclarationOnly && bun run verify-exports",
+    "build": "bun run prepare-skills && bun run clean && bun build opencode-ram0.ts --outdir dist --target bun --format esm --entry-naming index.[ext] && tsc --noEmit false --emitDeclarationOnly && bun run verify-exports",
     "prepack": "bun run build"
   },
   "opencode": {

@@ -6,11 +6,13 @@ import io
 import json
 import os
 import stat
+import time
 from pathlib import Path
 
 import pytest
 
 from install_cli import install
+from bootstrap_cli import bootstrap
 from ram0_cli import main
 from ram0_config import Ram0Config, Ram0ConfigError, load_config, normalize_api_url, update_config, write_config
 
@@ -168,6 +170,39 @@ def test_installer_copies_only_bounded_runtime_and_warns_when_bin_is_not_on_path
     ]
     assert str(installed) + " setup" in stdout.getvalue()
     assert not (tmp_path / ".zshrc").exists()
+
+
+def test_bootstrap_is_atomic_idempotent_and_never_touches_configuration(tmp_path):
+    config = tmp_path / ".config/ram0/config.json"
+    config.parent.mkdir(parents=True, mode=0o700)
+    config.write_text('{"api_url":"https://example.test","api_key":"secret"}\n')
+    config.chmod(0o600)
+    before = (config.read_bytes(), config.stat().st_mtime_ns)
+    stdout, stderr = io.StringIO(), io.StringIO()
+
+    assert bootstrap(home=tmp_path, stdout=stdout, stderr=stderr) is True
+    installed = tmp_path / ".local/share/ram0/ram0_cli.py"
+    first_mtime = installed.stat().st_mtime_ns
+    time.sleep(0.002)
+    assert bootstrap(home=tmp_path, stdout=stdout, stderr=stderr) is False
+
+    assert installed.stat().st_mtime_ns == first_mtime
+    assert (config.read_bytes(), config.stat().st_mtime_ns) == before
+    assert stat.S_IMODE(installed.stat().st_mode) == 0o600
+    assert stat.S_IMODE((tmp_path / ".local/bin/ram0").stat().st_mode) == 0o755
+    assert "secret" not in stdout.getvalue() + stderr.getvalue()
+
+
+def test_bootstrap_rejects_symlinked_runtime_destination(tmp_path):
+    share = tmp_path / ".local/share/ram0"
+    share.mkdir(parents=True)
+    target = tmp_path / "target"
+    target.write_text("unchanged")
+    (share / "ram0_cli.py").symlink_to(target)
+
+    with pytest.raises(OSError, match="regular file"):
+        bootstrap(home=tmp_path)
+    assert target.read_text() == "unchanged"
 
 
 def test_missing_key_is_actionable_without_repr_disclosure(tmp_path):

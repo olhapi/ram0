@@ -1,8 +1,13 @@
+// Modified for Ram0; see NOTICE and repository history.
+// SPDX-FileCopyrightText: 2026 Ram0 contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import type {Hooks, Plugin} from "@opencode-ai/plugin";
 import {createHash, createHmac, timingSafeEqual} from "node:crypto";
+import {existsSync} from "node:fs";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {dirname, join} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import {Ram0Client, Ram0ClientError, type Environment, type Fetcher} from "./ram0-client.ts";
 import {loadRam0Config, type Ram0Config} from "./ram0-config.ts";
 
@@ -376,6 +381,19 @@ export async function createRam0Hooks(options: RuntimeOptions): Promise<Hooks> {
 
   return {
     config: async (config) => {
+      const here = import.meta.filename;
+      const skillsDirectory = [
+        resolve(dirname(dirname(here)), "opencode-skills"),
+        resolve(dirname(here), "opencode-skills"),
+      ].find(existsSync);
+      if (skillsDirectory) {
+        const skillAwareConfig = config as typeof config & {skills?: {paths?: string[]}};
+        skillAwareConfig.skills ??= {};
+        const paths = skillAwareConfig.skills.paths ?? [];
+        if (!paths.includes(skillsDirectory)) {
+          skillAwareConfig.skills.paths = [...paths, skillsDirectory];
+        }
+      }
       if (!key) return;
       config.mcp = {
         ...(config.mcp ?? {}),

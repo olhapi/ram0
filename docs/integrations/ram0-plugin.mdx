@@ -1,73 +1,111 @@
 ---
 title: "Ram0 Agent Plugin"
-description: "Install persistent, account-scoped Ram0 automation in supported coding agents."
+description: "Install and update persistent, account-scoped Ram0 automation."
 ---
 
-The full automation plugin gives Codex, Claude Code, Cursor, and OpenCode Ram0's six MCP tools plus lifecycle retrieval and bounded durable capture. Direct MCP is tools-only; skills-only is guidance. Do not register both direct MCP and the full plugin in one client.
+<!-- Modified for Ram0; see NOTICE and repository history. -->
 
-## Permanent setup
+The full automation plugin gives Codex, Claude Code, Cursor, and OpenCode Ram0's six MCP tools, lifecycle retrieval, bounded durable capture, and 12 workflow skills. Do not register both direct MCP and the full plugin in one client.
 
-Create an API key on the dashboard; it is shown once. Review the checkout, then run:
+## Install
+
+Install from the generated remote marketplace; no Ram0 source checkout is required.
 
 ```bash
-git clone https://github.com/olhapi/ram0.git ~/ram0-plugins/ram0
-python3 ~/ram0-plugins/ram0/integrations/ram0-plugin/scripts/install_cli.py
+# Claude Code
+claude plugin marketplace add https://github.com/olhapi/ram0-plugins.git
+claude plugin install ram0@ram0-plugins
+
+# Codex
+codex plugin marketplace add https://github.com/olhapi/ram0-plugins.git
+codex plugin add ram0@ram0-plugins
+```
+
+Restart the client. In Codex, open `/hooks`, review the lifecycle hooks, and trust them; approve the hooks when Claude Code prompts. The trusted startup hook installs the bundled CLI atomically, while MCP starts directly from the plugin bundle.
+
+Create an API key on the dashboard; it is shown once. Then run:
+
+```bash
 ram0 setup --url 'https://ram0.example.lan'
 ram0 config test
 ```
 
-The hidden prompt stores exactly the URL and key in `~/.config/ram0/config.json` (`0700` directory, `0600` file). The key is sent only as `Authorization: Bearer` to the configured self-hosted endpoint. It is never stored as memory or logged and never sent to telemetry or third parties. Do not paste it into MCP JSON, source control, prompts, plugin manifests, or dashboard fields.
+The hidden prompt stores exactly the URL and key in `~/.config/ram0/config.json` (`0700` directory, `0600` file). Install and update preserve that config. The key is sent only as `Authorization: Bearer` to the configured endpoint; never paste it into MCP JSON, source control, prompts, plugin manifests, or dashboard fields.
 
 For deliberate development/CI processes, non-empty `RAM0_API_URL` and `RAM0_API_KEY` override their individual stored fields. Normal setup requires no environment persistence.
 
-## Install full automation
+## Update
 
 ```bash
-# Claude Code
-claude plugin marketplace add https://github.com/olhapi/ram0.git
-claude plugin install ram0@ram0-plugins
-
 # Codex
-codex plugin marketplace add ~/ram0-plugins/ram0
-codex plugin add ram0@ram0-plugins
+codex plugin marketplace upgrade ram0-plugins
+
+# Claude Code
+claude plugin marketplace update ram0-plugins
+claude plugin update ram0@ram0-plugins
 ```
 
-Restart the client. In Codex, open `/hooks`, review the lifecycle hooks, and trust them. Cursor users select `~/ram0-plugins/ram0/.cursor-plugin/marketplace.json` under **Settings → Plugins → Add Marketplace**, install Ram0, and reload.
+Restart after upgrading. Native updates preserve `~/.config/ram0/config.json`; they require no checkout, cache deletion, or plugin removal.
 
-OpenCode uses the reviewed local package:
+## Verify
 
-```bash
-cd ~/ram0-plugins/ram0/integrations/ram0-plugin/.opencode-plugin
-bun install --frozen-lockfile && bun run build
-opencode plugin "file://$PWD" --global
-```
+Run `ram0 config test`, confirm the `ram0` MCP starts without an environment-variable warning, and invoke `health`. Call `remember`, start another task, then use `search_memories` to verify cross-task recall.
+
+## Workflow skills
+
+- Write: `remember`
+- Browse: `peek`, `tour`
+- Delete: `forget` (confirmation required)
+- Portable data: `export`, `import` (bounded scan and reviewed batch)
+- Quality: `memory-reviewer` (read-only), `dream` (confirmed consolidation), `stats`
+- Setup: `health`, `onboard`
+- Policy: `ram0-memory`
+
+Plugin installation includes all skills automatically. OpenCode discovers all 12 bundled skills from the installed plugin. The `npx skills add ... --skill ram0-memory` command installs only the standalone policy skill.
 
 ## Direct MCP or skills-only
-
-Direct MCP uses the installed transport without putting the key in client configuration:
 
 ```bash
 codex mcp add ram0 -- python3 ~/.local/share/ram0/mcp_stdio_adapter.py
 claude mcp add ram0 --scope user -- python3 ~/.local/share/ram0/mcp_stdio_adapter.py
-```
-
-Cursor and OpenCode use the same `python3` command and adapter path in local stdio MCP configuration. Skills-only searches before writing and installs concise guidance:
-
-```bash
 npx skills add https://github.com/olhapi/ram0 --skill ram0-memory
 ```
 
-## Privacy and ownership
+The plugin never sends or saves raw prompts, transcripts, file dumps, complete code/diffs, credentials, or identities. Missing configuration or an unavailable endpoint fails open. The server derives ownership from the API-key owner and rejects caller-selected identity fields.
 
-The plugin never sends or saves raw prompts, raw transcripts, file dumps, complete source/code/diff content, credentials, or identities. It captures only constrained durable decisions, preferences, conventions, architecture facts, verified facts, troubleshooting results, and follow-ups. Missing configuration or an unavailable endpoint fails open.
+## Migration
 
-The server derives ownership from the API-key owner. Categories are private to that owner; first access copies the legacy template and onboarding appends missing definitions without replacing concurrent edits. Caller-selected `user_id`, agent, run, expiration, or credential fields are rejected.
+When an existing `ram0-plugins` marketplace points at a local checkout, replace that registration once. This is a local marketplace migration only; use native update commands afterward. Configuration is preserved.
 
-## Migration and troubleshooting
+```bash
+# Codex
+codex plugin remove ram0@ram0-plugins
+codex plugin marketplace remove ram0-plugins
+codex plugin marketplace add https://github.com/olhapi/ram0-plugins.git
+codex plugin add ram0@ram0-plugins
 
-- Remove the old `mem0-plugins` marketplace and duplicate remote Ram0 MCP entries; install `ram0@ram0-plugins`.
+# Claude Code
+claude plugin uninstall ram0@ram0-plugins
+claude plugin marketplace remove ram0-plugins
+claude plugin marketplace add https://github.com/olhapi/ram0-plugins.git
+claude plugin install ram0@ram0-plugins
+```
+
+Remove any duplicate direct Ram0 MCP entry before enabling the full plugin.
+
+## Troubleshooting
+
 - Rotate with `ram0 config set-key`.
 - Repair permissions with `chmod 600 ~/.config/ram0/config.json`.
 - Missing config: rerun `ram0 setup`. Unreachable endpoint: check `ram0 config show`, then `ram0 config test`.
 
-The upstream `integrations/mem0-plugin` source is intentionally unchanged; see [UPSTREAM.md](https://github.com/olhapi/ram0/blob/main/integrations/ram0-plugin/UPSTREAM.md).
+## Development
+
+Checkout installation is for contributors, not normal users:
+
+```bash
+git clone https://github.com/olhapi/ram0.git ~/ram0-development/ram0
+python3 ~/ram0-development/ram0/integrations/ram0-plugin/scripts/install_cli.py
+```
+
+Cursor and OpenCode development installation remains checkout-based. The upstream `integrations/mem0-plugin` source is intentionally unchanged; see [UPSTREAM.md](https://github.com/olhapi/ram0/blob/main/integrations/ram0-plugin/UPSTREAM.md).

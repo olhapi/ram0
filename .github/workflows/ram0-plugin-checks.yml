@@ -57,3 +57,12 @@ jobs:
       - name: Run tests
         working-directory: integrations/ram0-plugin
         run: python -m pytest -q
+
+      - name: Verify deterministic marketplace export
+        run: |
+          output_one="$(mktemp -d)"
+          output_two="$(mktemp -d)"
+          source_commit="$(git rev-parse HEAD)"
+          python integrations/ram0-plugin/scripts/export_marketplace.py --output "$output_one" --source-commit "$source_commit"
+          python integrations/ram0-plugin/scripts/export_marketplace.py --output "$output_two" --source-commit "$source_commit"
+          diff -ru "$output_one" "$output_two"
