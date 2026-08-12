@@ -1,10 +1,11 @@
 FROM node:20-alpine AS base
+# Modified for Ram0; see NOTICE and repository history.
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Dependencies
 FROM base AS deps
-COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+COPY server/dashboard/package.json server/dashboard/yarn.lock* server/dashboard/package-lock.json* server/dashboard/pnpm-lock.yaml* ./
 RUN \
   if [ -f yarn.lock ]; then yarn --frozen-lockfile --network-timeout 600000; \
   elif [ -f package-lock.json ]; then npm ci; \
@@ -16,7 +17,7 @@ RUN \
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY server/dashboard/ .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 # Placeholder values replaced at runtime by entrypoint.sh
@@ -29,6 +30,12 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
+ARG VCS_REF
+ARG SOURCE_URL=https://github.com/olhapi/ram0
+LABEL org.opencontainers.image.source=$SOURCE_URL \
+      org.opencontainers.image.revision=$VCS_REF \
+      org.opencontainers.image.licenses=Apache-2.0
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -38,7 +45,9 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --chown=nextjs:nodejs entrypoint.sh /home/nextjs/entrypoint.sh
+COPY --chown=nextjs:nodejs server/dashboard/entrypoint.sh /home/nextjs/entrypoint.sh
+COPY --from=builder /app/public/legal/fonts /usr/share/licenses/ram0/fonts
+COPY LICENSE NOTICE /usr/share/licenses/ram0/
 RUN chmod +x /home/nextjs/entrypoint.sh
 
 USER nextjs

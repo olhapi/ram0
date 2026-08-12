@@ -1,4 +1,4 @@
-.PHONY: format sort lint
+.PHONY: format sort lint check-ram0-plugin-docs
 
 # Variables
 ISORT_OPTIONS = --profile black
@@ -29,6 +29,9 @@ lint:
 
 docs:
 	cd docs && mintlify dev
+
+check-ram0-plugin-docs:
+	bash scripts/check-ram0-plugin-docs.sh
 
 build:
 	hatch build

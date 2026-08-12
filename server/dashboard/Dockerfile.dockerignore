@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Ram0 contributors
+# SPDX-License-Identifier: Apache-2.0
+
+.git
+.git/**
+.agents
+.agents/**
+.codex
+.codex/**
+.superpowers
+.superpowers/**
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/__pycache__
+**/.pytest_cache
+**/*.py[cod]
+**/*.tsbuildinfo
+server/history
+server/history/**

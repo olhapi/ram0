@@ -1,4 +1,3 @@
-# Copyright (c) 2026, Oracle and/or its affiliates.
 """Oracle AI Vector Search vector store integration for mem0."""
 
 import array
@@ -246,34 +245,25 @@ class OracleAIVectorSearch(VectorStoreBase):
             self.client = oracledb.connect(**self.config.connection_params)
             self._owns_client = True
 
-        try:
-            if not (hasattr(self.client, "thin") and self.client.thin):
-                if oracledb.clientversion()[:2] < (23, 4):
-                    raise RuntimeError(
-                        f"Oracle DB client driver version {'.'.join(map(str, oracledb.clientversion()))} "
-                        "not supported, must be >=23.4 for vector support"
-                    )
-
-            if isinstance(self.client, oracledb.Connection):
-                db_version = tuple([int(v) for v in self.client.version.split(".")])
-            else:
-                with self.client.acquire() as conn:
-                    db_version = tuple([int(v) for v in conn.version.split(".")])
-
-            if db_version < (23, 4):
-                raise ValueError(
-                    f"Oracle DB version {'.'.join(map(str, db_version))} not supported, "
-                    "must be >=23.4 for vector support"
+        if not (hasattr(self.client, "thin") and self.client.thin):
+            if oracledb.clientversion()[:2] < (23, 4):
+                raise RuntimeError(
+                    f"Oracle DB client driver version {'.'.join(map(str, oracledb.clientversion()))} "
+                    "not supported, must be >=23.4 for vector support"
                 )
 
-            self.create_col()
-        except Exception:
-            if self._owns_client:
-                try:
-                    self.client.close()
-                except Exception:
-                    pass
-            raise
+        if isinstance(self.client, oracledb.Connection):
+            db_version = tuple([int(v) for v in self.client.version.split(".")])
+        else:
+            with self.client.acquire() as conn:
+                db_version = tuple([int(v) for v in conn.version.split(".")])
+
+        if db_version < (23, 4):
+            raise ValueError(
+                f"Oracle DB version {'.'.join(map(str, db_version))} not supported, must be >=23.4 for vector support"
+            )
+
+        self.create_col()
 
     @contextmanager
     def _get_cursor(self, commit: bool = False):

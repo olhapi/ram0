@@ -5,8 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth";
 
 export const metadata = {
-  title: "Setup | Mem0",
-  description: "Set up your Mem0 instance",
+  title: "Setup | Ram0",
+  description: "Set up your Ram0 instance",
 };
 
 export default function SetupLayout({

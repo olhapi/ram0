@@ -1,0 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Ram0 contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ram0-mark-title">
+  <title id="ram0-mark-title">Ram0 R Loop mark</title>
+  <path d="M24 76V20h25c15 0 25 8 25 21 0 10-6 17-16 20l18 15H60L45 63h-8v13H24Zm13-25h11c8 0 13-3 13-10s-5-9-13-9H37v19Z" fill="none" stroke="#7659c5" stroke-width="8" stroke-linejoin="round"/>
+</svg>

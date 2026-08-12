@@ -1,0 +1,14 @@
+{
+  "valid_urls": [
+    ["https://brain-api.olhapi.com/", "https://brain-api.olhapi.com"],
+    ["http://localhost:8888", "http://localhost:8888"]
+  ],
+  "invalid_urls": [
+    "",
+    "brain-api.olhapi.com",
+    "ftp://brain-api.olhapi.com",
+    "https://user:password@brain-api.olhapi.com",
+    "https://brain-api.olhapi.com/path?token=value",
+    "https://brain-api.olhapi.com/#fragment"
+  ]
+}

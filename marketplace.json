@@ -1,14 +1,14 @@
 {
-  "name": "mem0-plugins",
+  "name": "ram0-plugins",
   "interface": {
-    "displayName": "Mem0 Plugins"
+    "displayName": "Ram0 Plugins"
   },
   "plugins": [
     {
-      "name": "mem0",
+      "name": "ram0",
       "source": {
         "source": "local",
-        "path": "./integrations/mem0-plugin"
+        "path": "./integrations/ram0-plugin"
       },
       "policy": {
         "installation": "AVAILABLE",

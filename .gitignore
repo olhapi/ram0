@@ -190,4 +190,8 @@ qdrant_storage/
 .crossnote
 testing.ipynb
 .weave/
+.worktrees/
 
+# Local agent design and implementation notes
+docs/superpowers/
+/.superpowers/

@@ -2,10 +2,20 @@ import asyncio
 import logging
 import os
 import time
+import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 import telemetry
 from auth import ADMIN_API_KEY, AUTH_DISABLED, JWT_SECRET, require_admin, verify_auth
+from category_models import CATEGORY_ORIGIN_KEY, parse_per_call_categories, promote_category_fields
+from category_runtime import (
+    get_category_service,
+    get_category_worker,
+    get_initialized_category_worker,
+    initialize_category_runtime,
+)
+from dashboard_url import dashboard_origin
 from db import SessionLocal
 from dotenv import load_dotenv
 from errors import (
@@ -19,13 +29,25 @@ from errors import (
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from memory_owner_migration import migrate_legacy_ownership
+import mcp_auth
+from mcp_server import create_mcp_http_app, mcp_authenticated_app
+from memory_authorization import (
+    MemoryPrincipal,
+    owner_filters,
+    reject_client_owner,
+    require_memory_principal,
+    require_owned_memory,
+)
 from models import RequestLog, User
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 from rate_limit import limiter
 from routers import api_keys as api_keys_router
 from routers import auth as auth_router
+from routers import categories as categories_router
 from routers import entities as entities_router
 from routers import requests as requests_router
+from routers import users as users_router
 from schemas import MessageResponse
 from server_state import (
     get_current_config,
@@ -143,21 +165,63 @@ set_session_factory(SessionLocal)
 initialize_state(DEFAULT_CONFIG)
 
 
+@asynccontextmanager
+async def category_lifespan(_: FastAPI):
+    """Start the category runtime once and always request worker shutdown."""
+    worker = None
+    try:
+        migration = migrate_legacy_ownership()
+        if migration.state == "ready":
+            initialize_category_runtime()
+            worker = get_category_worker()
+        else:
+            logging.warning(
+                "memory_ownership_migration state=%s migrated_memories=%d migrated_jobs=%d",
+                migration.state,
+                migration.migrated_memories,
+                migration.migrated_jobs,
+            )
+        yield
+    finally:
+        if worker is None:
+            worker = get_initialized_category_worker()
+        if worker is not None:
+            try:
+                worker.stop()
+            except Exception:
+                logging.warning("category_worker_stop_failed error_code=worker_stop_failed")
+
+
+@asynccontextmanager
+async def application_lifespan(app: FastAPI):
+    """Compose category startup with a fresh FastMCP session lifecycle."""
+    async with category_lifespan(app):
+        _, active_mcp_http_app = create_mcp_http_app()
+        previous_mcp_http_app = mcp_authenticated_app.app
+        mcp_authenticated_app.app = active_mcp_http_app
+        try:
+            async with active_mcp_http_app.lifespan(app):
+                yield
+        finally:
+            mcp_authenticated_app.app = previous_mcp_http_app
+
+
 app = FastAPI(
     title="Mem0 REST APIs",
     description=(
         "A REST API for managing and searching memories for your AI Agents and Apps.\n\n"
         "## Authentication\n"
-        "Supports Bearer JWT tokens, per-user API keys via `X-API-Key` header, "
+        "Supports Bearer JWT tokens or per-user API keys, plus the legacy `X-API-Key` header, "
         "or the legacy `ADMIN_API_KEY` environment variable. Set `AUTH_DISABLED=true` for local development only."
     ),
     version="1.0.0",
     redirect_slashes=False,
+    lifespan=application_lifespan,
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(UpstreamError, upstream_error_handler)
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000")
+DASHBOARD_URL = dashboard_origin()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[DASHBOARD_URL],
@@ -168,8 +232,23 @@ app.add_middleware(
 
 app.include_router(auth_router.router)
 app.include_router(api_keys_router.router)
+app.include_router(categories_router.router)
 app.include_router(entities_router.router)
 app.include_router(requests_router.router)
+app.include_router(users_router.router)
+
+
+@app.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False)
+async def mcp_root(request: Request):
+    """Authenticate the slashless MCP URL before its protocol redirect."""
+    await mcp_auth.require_mcp_bearer(request)
+    destination = f"{request.url.path}/"
+    if request.url.query:
+        destination = f"{destination}?{request.url.query}"
+    return RedirectResponse(url=destination, status_code=307)
+
+
+app.mount("/mcp", mcp_authenticated_app)
 
 
 class Message(BaseModel):
@@ -187,6 +266,10 @@ class MemoryCreate(BaseModel):
     infer: Optional[bool] = Field(None, description="Whether to extract facts from messages. Defaults to True.")
     memory_type: Optional[str] = Field(None, description="Type of memory to store (e.g. 'core').")
     prompt: Optional[str] = Field(None, description="Custom prompt to use for fact extraction.")
+    custom_categories: Optional[List[Dict[str, str]]] = Field(
+        None,
+        description="One-call category definitions as one-key name-to-description objects.",
+    )
 
 
 class MemoryUpdate(BaseModel):
@@ -365,14 +448,43 @@ def generate_instructions(req: GenerateInstructionsRequest, _auth=Depends(verify
 
 
 @app.post("/memories", summary="Create memories")
-def add_memory(memory_create: MemoryCreate, _auth=Depends(verify_auth)):
+def add_memory(memory_create: MemoryCreate, principal: MemoryPrincipal = Depends(require_memory_principal)):
     """Store new memories."""
-    if not any([memory_create.user_id, memory_create.agent_id, memory_create.run_id]):
-        raise HTTPException(status_code=400, detail="At least one identifier (user_id, agent_id, run_id) is required.")
+    reject_client_owner({"user_id": memory_create.user_id} if memory_create.user_id is not None else None)
+    reject_client_owner(memory_create.metadata)
 
-    params = {k: v for k, v in memory_create.model_dump().items() if v is not None and k != "messages"}
+    request_catalog = None
+    if memory_create.custom_categories is not None:
+        try:
+            request_catalog = parse_per_call_categories(memory_create.custom_categories)
+        except (PydanticValidationError, ValueError):
+            raise HTTPException(status_code=422, detail="Invalid custom categories.")
+
+    params = {
+        key: value
+        for key, value in memory_create.model_dump().items()
+        if value is not None and key not in {"messages", "custom_categories", "user_id"}
+    }
+    params["user_id"] = principal.owner_id
+    origin_token = str(uuid.uuid4())
+    params["metadata"] = {**(params.get("metadata") or {}), CATEGORY_ORIGIN_KEY: origin_token}
     try:
-        response = get_memory_instance().add(messages=[m.model_dump() for m in memory_create.messages], **params)
+        service = get_category_service()
+        catalog = service.resolve_catalog(principal.owner_id, request_catalog)
+        with service.owner_fence(principal.owner_id):
+            response = promote_category_fields(
+                get_memory_instance().add(
+                    messages=[message.model_dump() for message in memory_create.messages], **params
+                )
+            )
+            try:
+                response = service.after_add(
+                    response,
+                    catalog,
+                    origin_token=origin_token,
+                )
+            except Exception:
+                logging.warning("category_after_add_failed error_code=enqueue_failed")
         if response.get("results"):
             telemetry.log_dashboard_nudge_once(DASHBOARD_URL)
         return JSONResponse(content=response)
@@ -383,7 +495,20 @@ def add_memory(memory_create: MemoryCreate, _auth=Depends(verify_auth)):
 
 
 ALL_MEMORIES_LIMIT = 1000
-_RESERVED_PAYLOAD_KEYS = {"data", "user_id", "agent_id", "run_id", "hash", "created_at", "updated_at", "expiration_date"}
+_RESERVED_PAYLOAD_KEYS = {
+    "data",
+    "user_id",
+    "agent_id",
+    "run_id",
+    "hash",
+    "created_at",
+    "updated_at",
+    "expiration_date",
+    "categories",
+    "category_status",
+    "_category_generation",
+    "_category_origin",
+}
 
 
 def _serialize_memory(row: Any) -> Dict[str, Any]:
@@ -396,44 +521,36 @@ def _serialize_memory(row: Any) -> Dict[str, Any]:
         "run_id": payload.get("run_id"),
         "hash": payload.get("hash"),
         "expiration_date": payload.get("expiration_date"),
+        "categories": payload.get("categories"),
+        "category_status": payload.get("category_status", "unclassified"),
         "metadata": {k: v for k, v in payload.items() if k not in _RESERVED_PAYLOAD_KEYS},
         "created_at": payload.get("created_at"),
         "updated_at": payload.get("updated_at"),
     }
 
 
-def _list_all_memories(limit: int = ALL_MEMORIES_LIMIT) -> Dict[str, Any]:
-    results = get_memory_instance().vector_store.list(top_k=limit)
-    rows = results[0] if results and isinstance(results, list) and isinstance(results[0], list) else results or []
-    return {"results": [_serialize_memory(row) for row in rows]}
-
-
 @app.get("/memories", summary="Get memories")
 def get_all_memories(
-    request: Request,
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    categories: Optional[List[str]] = Query(None),
     top_k: Optional[int] = Query(None, ge=0, le=ALL_MEMORIES_LIMIT),
     show_expired: bool = Query(False),
-    _auth=Depends(verify_auth),
+    principal: MemoryPrincipal = Depends(require_memory_principal),
 ):
-    """Retrieve stored memories. Lists all memories when no identifier is provided (admin only)."""
+    """Retrieve memories belonging to the authenticated account."""
     try:
-        if not any([user_id, run_id, agent_id]):
-            auth_type = getattr(request.state, "auth_type", "none")
-            if _auth is not None and _auth.role != "admin" and auth_type not in {"admin_api_key", "disabled"}:
-                raise HTTPException(status_code=403, detail="Admin role required to list all memories.")
-            # Admin all-memory listing is intentionally raw; scoped get_all below applies expiry visibility.
-            return _list_all_memories(limit=top_k if top_k is not None else ALL_MEMORIES_LIMIT)
-        filters = {
-            k: v for k, v in {"user_id": user_id, "run_id": run_id, "agent_id": agent_id}.items() if v
-        }
+        reject_client_owner({"user_id": user_id} if user_id is not None else None)
+        extra = {}
+        if categories is not None:
+            extra["categories"] = {"in": categories}
+        filters = owner_filters(principal, agent_id=agent_id, run_id=run_id, extra=extra)
         params = {"filters": filters}
         if top_k is not None:
             params["top_k"] = top_k
         params["show_expired"] = show_expired
-        return get_memory_instance().get_all(**params)
+        return promote_category_fields(get_memory_instance().get_all(**params))
     except HTTPException:
         raise
     except Exception:
@@ -441,31 +558,29 @@ def get_all_memories(
 
 
 @app.get("/memories/{memory_id}", summary="Get a memory")
-def get_memory(memory_id: str, _auth=Depends(verify_auth)):
+def get_memory(memory_id: str, principal: MemoryPrincipal = Depends(require_memory_principal)):
     """Retrieve a specific memory by ID."""
     try:
-        return get_memory_instance().get(memory_id)
+        memory = get_memory_instance()
+        require_owned_memory(memory_id, principal, memory)
+        return promote_category_fields(memory.get(memory_id))
+    except HTTPException:
+        raise
     except Exception:
         raise upstream_error()
 
 
 @app.post("/search", summary="Search memories")
-def search_memories(search_req: SearchRequest, _auth=Depends(verify_auth)):
+def search_memories(search_req: SearchRequest, principal: MemoryPrincipal = Depends(require_memory_principal)):
     """Search for memories based on a query."""
     try:
-        filters = search_req.filters or {}
-        deprecated_keys = []
-        for entity_key in ("user_id", "agent_id", "run_id"):
-            entity_val = getattr(search_req, entity_key, None)
-            if entity_val:
-                filters[entity_key] = entity_val
-                deprecated_keys.append(entity_key)
-        if deprecated_keys:
-            logging.warning(
-                "Top-level %s in /search is deprecated. Use filters={%s} instead.",
-                ", ".join(deprecated_keys),
-                ", ".join(f'"{k}": "..."' for k in deprecated_keys),
-            )
+        reject_client_owner({"user_id": search_req.user_id} if search_req.user_id is not None else None)
+        filters = owner_filters(
+            principal,
+            agent_id=search_req.agent_id,
+            run_id=search_req.run_id,
+            extra=search_req.filters or {},
+        )
         params = {}
         if search_req.top_k is not None:
             params["top_k"] = search_req.top_k
@@ -475,7 +590,7 @@ def search_memories(search_req: SearchRequest, _auth=Depends(verify_auth)):
             params["explain"] = search_req.explain
         if search_req.show_expired is not None:
             params["show_expired"] = search_req.show_expired
-        return get_memory_instance().search(query=search_req.query, filters=filters, **params)
+        return promote_category_fields(get_memory_instance().search(query=search_req.query, filters=filters, **params))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
@@ -485,10 +600,17 @@ def search_memories(search_req: SearchRequest, _auth=Depends(verify_auth)):
 
 
 @app.put("/memories/{memory_id}", summary="Update a memory")
-def update_memory(memory_id: str, updated_memory: MemoryUpdate, _auth=Depends(verify_auth)):
+def update_memory(
+    memory_id: str,
+    updated_memory: MemoryUpdate,
+    principal: MemoryPrincipal = Depends(require_memory_principal),
+):
     """Update an existing memory."""
     try:
-        fields_set = getattr(updated_memory, "model_fields_set", getattr(updated_memory, "__fields_set__", set()))
+        reject_client_owner(updated_memory.metadata)
+        fields_set = updated_memory.model_fields_set
+        memory = get_memory_instance()
+        require_owned_memory(memory_id, principal, memory)
         params = {"memory_id": memory_id}
         if "text" in fields_set:
             params["data"] = updated_memory.text
@@ -496,7 +618,17 @@ def update_memory(memory_id: str, updated_memory: MemoryUpdate, _auth=Depends(ve
             params["metadata"] = updated_memory.metadata
         if "expiration_date" in fields_set:
             params["expiration_date"] = updated_memory.expiration_date
-        return get_memory_instance().update(**params)
+        service = get_category_service()
+        update_kwargs = {"supplied_text": updated_memory.text} if "text" in fields_set else {}
+        response = service.run_memory_update(
+            memory_id,
+            lambda: memory.update(**params),
+            owner_id=principal.owner_id,
+            **update_kwargs,
+        )
+        return promote_category_fields(response)
+    except HTTPException:
+        raise
     except (ValueError, Mem0ValidationError) as e:
         raise _client_error(e)
     except Exception:
@@ -504,20 +636,32 @@ def update_memory(memory_id: str, updated_memory: MemoryUpdate, _auth=Depends(ve
 
 
 @app.get("/memories/{memory_id}/history", summary="Get memory history")
-def memory_history(memory_id: str, _auth=Depends(verify_auth)):
+def memory_history(memory_id: str, principal: MemoryPrincipal = Depends(require_memory_principal)):
     """Retrieve memory history."""
     try:
-        return get_memory_instance().history(memory_id=memory_id)
+        memory = get_memory_instance()
+        require_owned_memory(memory_id, principal, memory)
+        return memory.history(memory_id=memory_id)
+    except HTTPException:
+        raise
     except Exception:
         raise upstream_error()
 
 
 @app.delete("/memories/{memory_id}", summary="Delete a memory", response_model=MessageResponse)
-def delete_memory(memory_id: str, _auth=Depends(verify_auth)):
+def delete_memory(memory_id: str, principal: MemoryPrincipal = Depends(require_memory_principal)):
     """Delete a specific memory by ID."""
     try:
-        get_memory_instance().delete(memory_id=memory_id)
+        memory = get_memory_instance()
+        require_owned_memory(memory_id, principal, memory)
+        memory.delete(memory_id=memory_id)
+        try:
+            get_category_service().after_delete(memory_id, principal.owner_id)
+        except Exception:
+            logging.warning("category_after_delete_failed memory_id=%s error_code=cancel_failed", memory_id)
         return MessageResponse(message="Memory deleted successfully")
+    except HTTPException:
+        raise
     except (ValueError, Mem0ValidationError) as e:
         raise _client_error(e)
     except Exception:
@@ -529,27 +673,37 @@ def delete_all_memories(
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
     agent_id: Optional[str] = None,
-    _auth=Depends(require_admin),
+    principal: MemoryPrincipal = Depends(require_memory_principal),
 ):
-    """Delete all memories for a given identifier. Requires admin role."""
-    if not any([user_id, run_id, agent_id]):
-        raise HTTPException(status_code=400, detail="At least one identifier is required.")
+    """Delete this account's memories, optionally scoped by agent or run."""
     try:
-        params = {
-            k: v for k, v in {"user_id": user_id, "run_id": run_id, "agent_id": agent_id}.items() if v
-        }
-        get_memory_instance().delete_all(**params)
+        reject_client_owner({"user_id": user_id} if user_id is not None else None)
+        get_memory_instance().delete_all(user_id=principal.owner_id, agent_id=agent_id, run_id=run_id)
         return MessageResponse(message="All relevant memories deleted")
+    except HTTPException:
+        raise
     except Exception:
         raise upstream_error()
 
 
 @app.post("/reset", summary="Reset all memories")
-def reset_memory(_auth=Depends(require_admin)):
-    """Completely reset stored memories. Requires admin role."""
+def reset_memory(principal: MemoryPrincipal = Depends(require_memory_principal)):
+    """Delete every memory owned by the authenticated account."""
     try:
-        get_memory_instance().reset()
+        service = get_category_service()
+        with service.owner_fence(principal.owner_id):
+            get_memory_instance().delete_all(user_id=principal.owner_id)
+            try:
+                cleaned = service.after_owner_reset(principal.owner_id)
+            except Exception:
+                logging.warning("category_after_owner_reset_failed error_code=purge_failed")
+                raise HTTPException(status_code=503, detail="Reset cleanup incomplete.") from None
+            if not cleaned:
+                logging.warning("category_after_owner_reset_failed error_code=purge_failed")
+                raise HTTPException(status_code=503, detail="Reset cleanup incomplete.")
         return {"message": "All memories reset"}
+    except HTTPException:
+        raise
     except Exception:
         raise upstream_error()
 

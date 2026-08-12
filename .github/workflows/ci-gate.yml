@@ -40,12 +40,14 @@ jobs:
       openclaw: ${{ steps.filter.outputs.openclaw }}
       mem0_plugin: ${{ steps.filter.outputs.mem0_plugin }}
       opencode_plugin: ${{ steps.filter.outputs.opencode_plugin }}
+      ram0_plugin: ${{ steps.filter.outputs.ram0_plugin }}
+      ram0_opencode_plugin: ${{ steps.filter.outputs.ram0_opencode_plugin }}
       pi_agent_plugin: ${{ steps.filter.outputs.pi_agent_plugin }}
       n8n_nodes_mem0: ${{ steps.filter.outputs.n8n_nodes_mem0 }}
       zapier_mem0: ${{ steps.filter.outputs.zapier_mem0 }}
       docs_llms_txt: ${{ steps.filter.outputs.docs_llms_txt }}
     steps:
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@15192bc058cc28a13dbf6cde61f19e18988b7af6
         id: filter
         with:
           # Each filter mirrors the package workflow's old pull_request
@@ -82,6 +84,15 @@ jobs:
             opencode_plugin:
               - 'integrations/mem0-plugin/.opencode-plugin/**'
               - '.github/workflows/opencode-plugin-checks.yml'
+              - '.github/workflows/ci-gate.yml'
+            ram0_plugin:
+              - 'integrations/ram0-plugin/**'
+              - '!integrations/ram0-plugin/.opencode-plugin/**'
+              - '.github/workflows/ram0-plugin-checks.yml'
+              - '.github/workflows/ci-gate.yml'
+            ram0_opencode_plugin:
+              - 'integrations/ram0-plugin/.opencode-plugin/**'
+              - '.github/workflows/ram0-opencode-plugin-checks.yml'
               - '.github/workflows/ci-gate.yml'
             pi_agent_plugin:
               - 'integrations/pi-agent-plugin/**'
@@ -151,6 +162,20 @@ jobs:
     uses: ./.github/workflows/opencode-plugin-checks.yml
     secrets: inherit
 
+  ram0-plugin:
+    name: Ram0 Plugin
+    needs: changes
+    if: needs.changes.outputs.ram0_plugin == 'true'
+    uses: ./.github/workflows/ram0-plugin-checks.yml
+    secrets: inherit
+
+  ram0-opencode-plugin:
+    name: Ram0 OpenCode Plugin
+    needs: changes
+    if: needs.changes.outputs.ram0_opencode_plugin == 'true'
+    uses: ./.github/workflows/ram0-opencode-plugin-checks.yml
+    secrets: inherit
+
   pi-agent-plugin:
     name: Pi Agent Plugin
     needs: changes
@@ -188,6 +213,8 @@ jobs:
       - openclaw
       - mem0-plugin
       - opencode-plugin
+      - ram0-plugin
+      - ram0-opencode-plugin
       - pi-agent-plugin
       - n8n-nodes-mem0
       - zapier-mem0

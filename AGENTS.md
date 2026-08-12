@@ -1,6 +1,23 @@
 # AGENTS.md
 
+<!-- Modified for Ram0; see NOTICE and repository history. -->
+
 This file provides context for AI coding assistants (Claude Code, Cursor, GitHub Copilot, Codex, etc.) working with the Mem0 repository.
+
+## License and Modification Notices
+
+- Add `SPDX-FileCopyrightText: <year> Ram0 contributors` and
+  `SPDX-License-Identifier: Apache-2.0` to every new Ram0-owned source file
+  whose format supports comments.
+- Whenever materially modifying an upstream source file whose format supports
+  comments, add the prominent notice `Modified for Ram0; see NOTICE and
+  repository history.` near the top of the file.
+- Do not add inline notices to JSON, lockfiles, generated files, binary assets,
+  or formats where comments are invalid, destructive, or conventionally
+  inappropriate. The root `NOTICE` and repository history cover those files.
+- Do not mechanically alter unchanged upstream files solely to add headers.
+- Preserve existing copyright, patent, trademark, license, and attribution
+  notices.
 
 ## Project Overview
 
@@ -24,6 +41,7 @@ This is a **polyglot monorepo** containing Python and TypeScript packages, CLIs,
 | `cli/node/` | Node CLI (`@mem0/cli` on npm) — Commander-based, entry point `mem0` |
 | `integrations/` | **Agent & editor integrations**, one directory per integration (see "Adding a New Integration") |
 | `integrations/mem0-plugin/` | AI editor plugins (Claude Code, Cursor, Codex) — MCP server connection, lifecycle hooks, skills. Contains nested `.opencode-plugin/` (`@mem0/opencode-plugin`) |
+| `integrations/ram0-plugin/` | Self-hosted Ram0 adaptation for Claude Code, Cursor, Codex, and OpenCode — bearer-authenticated `/mcp`, lifecycle hooks, and `ram0-memory` skill. Contains nested `.opencode-plugin/` |
 | `integrations/openclaw/` | `@mem0/openclaw-mem0` — OpenClaw plugin for Claude Code / AI editors |
 | `integrations/pi-agent-plugin/` | `@mem0/pi-agent-plugin` — Pi Agent plugin |
 | `integrations/vercel-ai-sdk/` | `@mem0/vercel-ai-provider` — Vercel AI SDK memory provider |
@@ -361,6 +379,7 @@ Model Context Protocol support in multiple places:
 
 - **Remote:** MCP server at `mcp.mem0.ai`
 - **Plugin:** MCP tools in `integrations/mem0-plugin/` — 9 tools: `add_memory`, `search_memories`, `get_memories`, `get_memory`, `update_memory`, `delete_memory`, `delete_all_memories`, `delete_entities`, `list_entities`
+- **Self-hosted Ram0:** bearer-authenticated Streamable HTTP endpoint at `/mcp` — six account-scoped memory tools; see `docs/open-source/ram0-mcp.mdx`.
 
 ### Plugin & Skills System
 
@@ -408,6 +427,8 @@ PR testing is orchestrated by a single entry point: **`ci-gate.yml` (CI Gate)** 
 | OpenClaw | `openclaw-checks.yml` | Push to main (on `integrations/openclaw/`), manual | tsc + vitest (with Codecov) + tsup build on Node 20, 22 |
 | Mem0 Plugin | `mem0-plugin-checks.yml` | Push to main (on `integrations/mem0-plugin/`, excluding `.opencode-plugin/`), manual | pytest + hook entry-point exec bits + JSON manifest validation on Python 3.10, 3.11, 3.12 |
 | OpenCode Plugin | `opencode-plugin-checks.yml` | Push to main (on `integrations/mem0-plugin/.opencode-plugin/`), manual | Bun: tsc type-check + build + dist artifact check |
+| Ram0 Plugin | `ram0-plugin-checks.yml` | Push to main (on `integrations/ram0-plugin/`, excluding `.opencode-plugin/`), manual | pytest + hook entry-point exec bits + JSON manifest validation on Python 3.10, 3.11, 3.12 |
+| Ram0 OpenCode Plugin | `ram0-opencode-plugin-checks.yml` | Push to main (on `integrations/ram0-plugin/.opencode-plugin/`), manual | Bun: tests + tsc type-check + build + dist artifact check |
 | Pi Agent Plugin | `pi-agent-plugin-checks.yml` | Push to main (on `integrations/pi-agent-plugin/`), manual | tsc + vitest + tsup build (dist artifact check) on Node 20, 22 |
 | n8n Node | `n8n-nodes-mem0-checks.yml` | Push to main (on `integrations/n8n-nodes-mem0/`), manual | ESLint (n8n-nodes-base) + tsc build (dist artifact check) on Node 20 |
 | Zapier App | `zapier-mem0-checks.yml` | Push to main (on `integrations/zapier-mem0/`), manual | build (tsc) + `zapier validate` + offline unit tests on Node 22 |

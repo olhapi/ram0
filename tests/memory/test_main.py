@@ -363,6 +363,17 @@ def test_create_memory_preserves_existing_created_at(mocker):
     assert payload["updated_at"] == custom_ts
 
 
+def test_create_memory_debug_log_excludes_memory_content(mocker, caplog):
+    memory = _build_memory_instance(mocker, Memory)
+    canary = "private-sync-created-memory-canary"
+
+    with caplog.at_level(logging.DEBUG, logger="mem0.memory.main"):
+        memory._create_memory(canary, {canary: [0.1, 0.2, 0.3]}, metadata={})
+
+    assert "Creating memory" in caplog.text
+    assert canary not in caplog.text
+
+
 def test_update_memory_uses_utc_timestamps(mocker):
     memory = _build_memory_instance(mocker, Memory)
     memory.vector_store.get.return_value = MagicMock(
@@ -372,6 +383,18 @@ def test_update_memory_uses_utc_timestamps(mocker):
     payload = memory.vector_store.update.call_args.kwargs["payload"]
     assert payload["created_at"] == "2026-03-17T17:00:00-07:00"
     assert payload["updated_at"] is not None
+
+
+def test_update_memory_logs_identifier_without_memory_content(mocker, caplog):
+    memory = _build_memory_instance(mocker, Memory)
+    canary = "private-sync-memory-canary"
+    memory.vector_store.get.return_value = MagicMock(payload={"data": canary, "created_at": None})
+
+    with caplog.at_level(logging.INFO, logger="mem0.memory.main"):
+        memory._update_memory("safe-sync-memory-id", canary, {canary: [0.1, 0.2, 0.3]}, metadata={})
+
+    assert "safe-sync-memory-id" in caplog.text
+    assert canary not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -407,6 +430,18 @@ async def test_async_create_memory_preserves_existing_created_at(mocker):
 
 
 @pytest.mark.asyncio
+async def test_async_create_memory_debug_log_excludes_memory_content(mocker, caplog):
+    memory = _build_memory_instance(mocker, AsyncMemory)
+    canary = "private-async-created-memory-canary"
+
+    with caplog.at_level(logging.DEBUG, logger="mem0.memory.main"):
+        await memory._create_memory(canary, {canary: [0.1, 0.2, 0.3]}, metadata={})
+
+    assert "Creating memory" in caplog.text
+    assert canary not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_async_update_memory_uses_utc_timestamps(mocker):
     memory = _build_memory_instance(mocker, AsyncMemory)
     memory.vector_store.get.return_value = MagicMock(
@@ -416,6 +451,19 @@ async def test_async_update_memory_uses_utc_timestamps(mocker):
     payload = memory.vector_store.update.call_args.kwargs["payload"]
     assert payload["created_at"] == "2026-03-17T17:00:00-07:00"
     assert payload["updated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_async_update_memory_logs_identifier_without_memory_content(mocker, caplog):
+    memory = _build_memory_instance(mocker, AsyncMemory)
+    canary = "private-async-memory-canary"
+    memory.vector_store.get.return_value = MagicMock(payload={"data": canary, "created_at": None})
+
+    with caplog.at_level(logging.INFO, logger="mem0.memory.main"):
+        await memory._update_memory("safe-async-memory-id", canary, {canary: [0.1, 0.2, 0.3]}, metadata={})
+
+    assert "safe-async-memory-id" in caplog.text
+    assert canary not in caplog.text
 
 
 _ATTACKER_UPDATE_METADATA = {

@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosInstance } from "axios";
+import axios, { type AxiosError, type AxiosInstance } from "axios";
 
 let cachedToken: string | null = null;
 const LOGIN_PATH = "/login";

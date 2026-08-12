@@ -1,0 +1,10 @@
+{
+  "id": "ram0",
+  "name": "ram0",
+  "version": "0.1.0",
+  "description": "Self-hosted, account-isolated durable memory for agents.",
+  "author": { "name": "Ram0" },
+  "license": "Apache-2.0",
+  "keywords": ["memory", "self-hosted", "persistence", "mcp"],
+  "contextFileName": "AGENTS.md"
+}

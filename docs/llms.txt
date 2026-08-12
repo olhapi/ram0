@@ -181,6 +181,7 @@ If the user is on a pre-current major (Python < 2, TS < 3, or Platform `output_f
 - [Open Source Python Quickstart](https://docs.mem0.ai/open-source/python-quickstart) [OSS]: Use for the first self-hosted Python integration.
 - [Open Source Node.js Quickstart](https://docs.mem0.ai/open-source/node-quickstart) [OSS]: Use for the first self-hosted Node integration.
 - [Self-Hosted Setup](https://docs.mem0.ai/open-source/setup) [OSS]: Use when standing up the bundled REST server and dashboard via Docker Compose, including auth, API keys, and the setup wizard.
+- [Self-Hosted Ram0 MCP](https://docs.mem0.ai/open-source/ram0-mcp) [OSS]: Use when connecting an MCP client to Ram0's bearer-authenticated, account-scoped `/mcp` endpoint.
 
 ## Core Concepts
 
@@ -239,7 +240,7 @@ If the user is on a pre-current major (Python < 2, TS < 3, or Platform `output_f
 - [Async Memory](https://docs.mem0.ai/open-source/features/async-memory) [OSS]: Use when the self-hosted app needs `AsyncMemory`.
 - [OSS Multimodal Support (features)](https://docs.mem0.ai/open-source/features/multimodal-support) [OSS]: Use when handling images and PDFs self-hosted (feature guide).
 - [Custom Instructions (OSS)](https://docs.mem0.ai/open-source/features/custom-instructions) [OSS]: Use when tailoring extraction prompts in OSS.
-- [REST API Server](https://docs.mem0.ai/open-source/features/rest-api) [OSS]: Use when exposing a self-hosted Mem0 as a FastAPI service.
+- [REST API Server](https://docs.mem0.ai/open-source/features/rest-api) [OSS]: Use when exposing a self-hosted Mem0/Ram0 FastAPI service, especially for account-derived memory ownership, API-key attribution, or copied-link invitations.
 - [OpenAI Compatibility](https://docs.mem0.ai/open-source/features/openai_compatibility) [OSS]: Use when hitting an OpenAI-compatible endpoint with self-hosted.
 
 ## Integrations
@@ -265,6 +266,7 @@ If the user is on a pre-current major (Python < 2, TS < 3, or Platform `output_f
 - [Vercel AI SDK](https://docs.mem0.ai/integrations/vercel-ai-sdk) [Both]: Use when the user is on the Vercel AI SDK.
 
 ### AI Coding Tools
+- [Ram0 Agent Plugin](https://docs.mem0.ai/integrations/ram0-plugin) [OSS]: Use when installing self-hosted, bearer-authenticated Ram0 retrieval and durable-memory automation for Claude Code, Codex, Cursor, or OpenCode, or when choosing it instead of direct six-tool MCP.
 - [Claude Code](https://docs.mem0.ai/integrations/claude-code) [Both]: Use when wiring memory into Claude Code.
 - [Cursor](https://docs.mem0.ai/integrations/cursor) [Both]: Use when wiring memory into Cursor.
 - [Codex](https://docs.mem0.ai/integrations/codex) [Both]: Use when wiring memory into Codex / other editor assistants.
@@ -409,6 +411,7 @@ The `integrations/mem0-plugin/` directory provides MCP server connection, lifecy
 
 Editor-specific setup docs (already listed above under `## Integrations > AI Coding Tools`):
 
+- `integrations/ram0-plugin` [OSS]
 - `integrations/claude-code` [Both]
 - `integrations/cursor` [Both]
 - `integrations/codex` [Both]

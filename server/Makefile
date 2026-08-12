@@ -1,4 +1,4 @@
-.PHONY: up down clean logs seed wait-api wait-dashboard bootstrap health build run_local reset-admin-password prune-logs
+.PHONY: up down clean logs seed wait-api wait-dashboard bootstrap health build run_local reset-admin-password prune-logs e2e-ram0-plugin-prepare e2e-ram0-plugin
 
 OUTPUT ?= text
 API_URL ?= http://localhost:8888
@@ -55,8 +55,14 @@ reset-admin-password:
 prune-logs:
 	@docker compose exec -T -e REQUEST_LOG_RETENTION_DAYS="$(REQUEST_LOG_RETENTION_DAYS)" -e PYTHONPATH=/app mem0 python scripts/prune_request_logs.py
 
+e2e-ram0-plugin-prepare:
+	@python3 scripts/e2e_ram0_plugin.py prepare
+
+e2e-ram0-plugin:
+	@python3 scripts/e2e_ram0_plugin.py run
+
 build:
-	docker build -t mem0-api-server .
+	docker build -t mem0-api-server -f Dockerfile ..
 
 run_local:
 	docker run -p 8000:8000 -v $(shell pwd):/app mem0-api-server --env-file .env

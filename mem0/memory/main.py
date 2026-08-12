@@ -404,18 +404,13 @@ def _build_filters_and_metadata(
     return base_metadata_template, effective_query_filters
 
 
-def _escape_scope_value(val: Any) -> str:
-    """Escape the structural delimiters of the session scope key."""
-    return str(val).replace("%", "%25").replace("&", "%26").replace("=", "%3D")
-
-
 def _build_session_scope(filters):
     """Build deterministic session scope string from entity IDs."""
     parts = []
     for key in sorted(["user_id", "agent_id", "run_id"]):
         val = filters.get(key)
         if val:
-            parts.append(f"{key}={_escape_scope_value(val)}")
+            parts.append(f"{key}={val}")
     return "&".join(parts)
 
 
@@ -795,11 +790,6 @@ class Memory(MemoryBase):
                 creating procedural memories (typically requires 'agent_id'). Otherwise, memories
                 are treated as general conversational/factual memories.
             prompt (str, optional): Prompt to use for the memory creation. Defaults to None.
-
-        Note:
-            `search()` and `get_all()` scope queries via `filters={"user_id": "...", "agent_id": "...", "run_id": "..."}` —
-            they reject top-level `user_id`/`agent_id`/`run_id` arguments. `add()` accepts them top-level, but passing
-            the same arguments to `search()`/`get_all()` raises a `ValueError`; use the `filters` form there instead.
 
 
         Returns:
@@ -1959,12 +1949,12 @@ class Memory(MemoryBase):
         return history
 
     def _create_memory(self, data, existing_embeddings, metadata=None):
-        logger.debug(f"Creating memory with {data=}")
         if data in existing_embeddings:
             embeddings = existing_embeddings[data]
         else:
             embeddings = self.embedding_model.embed(data, memory_action="add")
         memory_id = str(uuid.uuid4())
+        logger.debug("Creating memory id=%s", memory_id)
         new_metadata = deepcopy(metadata) if metadata is not None else {}
         new_metadata["data"] = data
         new_metadata["hash"] = hashlib.md5(data.encode()).hexdigest()
@@ -2030,7 +2020,7 @@ class Memory(MemoryBase):
         return result
 
     def _update_memory(self, memory_id, data, existing_embeddings, metadata=None):
-        logger.info(f"Updating memory with {data=}")
+        logger.info("Updating memory memory_id=%s", memory_id)
 
         try:
             existing_memory = self.vector_store.get(vector_id=memory_id)
@@ -2069,7 +2059,7 @@ class Memory(MemoryBase):
             vector=embeddings,
             payload=new_metadata,
         )
-        logger.info(f"Updating memory with ID {memory_id=} with {data=}")
+        logger.info("Updated memory memory_id=%s", memory_id)
 
         self.db.add_history(
             memory_id,
@@ -2457,12 +2447,6 @@ class AsyncMemory(MemoryBase):
                                          Pass "procedural_memory" to create procedural memories.
             prompt (str, optional): Prompt to use for the memory creation. Defaults to None.
             llm (BaseChatModel, optional): LLM class to use for generating procedural memories. Defaults to None. Useful when user is using LangChain ChatModel.
-
-        Note:
-            `search()` and `get_all()` scope queries via `filters={"user_id": "...", "agent_id": "...", "run_id": "..."}` —
-            they reject top-level `user_id`/`agent_id`/`run_id` arguments. `add()` accepts them top-level, but passing
-            the same arguments to `search()`/`get_all()` raises a `ValueError`; use the `filters` form there instead.
-
         Returns:
             dict: A dictionary containing the result of the memory addition operation.
         """
@@ -3626,13 +3610,13 @@ class AsyncMemory(MemoryBase):
         return history
 
     async def _create_memory(self, data, existing_embeddings, metadata=None):
-        logger.debug(f"Creating memory with {data=}")
         if data in existing_embeddings:
             embeddings = existing_embeddings[data]
         else:
             embeddings = await asyncio.to_thread(self.embedding_model.embed, data, memory_action="add")
 
         memory_id = str(uuid.uuid4())
+        logger.debug("Creating memory id=%s", memory_id)
         new_metadata = deepcopy(metadata) if metadata is not None else {}
         new_metadata["data"] = data
         new_metadata["hash"] = hashlib.md5(data.encode()).hexdigest()
@@ -3719,7 +3703,7 @@ class AsyncMemory(MemoryBase):
         return result
 
     async def _update_memory(self, memory_id, data, existing_embeddings, metadata=None):
-        logger.info(f"Updating memory with {data=}")
+        logger.info("Updating memory memory_id=%s", memory_id)
 
         try:
             existing_memory = await asyncio.to_thread(self.vector_store.get, vector_id=memory_id)
@@ -3759,7 +3743,7 @@ class AsyncMemory(MemoryBase):
             vector=embeddings,
             payload=new_metadata,
         )
-        logger.info(f"Updating memory with ID {memory_id=} with {data=}")
+        logger.info("Updated memory memory_id=%s", memory_id)
 
         await asyncio.to_thread(
             self.db.add_history,

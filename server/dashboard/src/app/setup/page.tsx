@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 import { CopyToClipboard } from "react-copy-to-clipboard";
@@ -17,6 +18,8 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { getErrorMessage } from "@/lib/error-message";
+import { getAccountCreationSessionRecovery } from "@/lib/refresh-token-cookie";
+import { buildSetupQuickTestPayload } from "@/lib/setup-quick-test";
 import { cn } from "@/lib/utils";
 import { api } from "@/utils/api";
 import {
@@ -69,6 +72,8 @@ export default function SetupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isPrefillingConfig, setIsPrefillingConfig] = useState(false);
   const [error, setError] = useState("");
+  const [showLoginRecovery, setShowLoginRecovery] = useState(false);
+  const [recoveryReloadAvailable, setRecoveryReloadAvailable] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -173,13 +178,22 @@ export default function SetupPage() {
     }
 
     setError("");
+    setShowLoginRecovery(false);
+    setRecoveryReloadAvailable(false);
     setIsLoading(true);
 
     try {
       await register(name, email, password);
       setStep(1);
     } catch (err) {
-      setError(getErrorMessage(err, "Registration failed"));
+      const recovery = getAccountCreationSessionRecovery(err, "created");
+      if (recovery) {
+        setError(recovery.message);
+        setShowLoginRecovery(true);
+        setRecoveryReloadAvailable(recovery.reloadAvailable);
+      } else {
+        setError(getErrorMessage(err, "Registration failed"));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -275,10 +289,7 @@ export default function SetupPage() {
       const res = await fetch(`${apiUrl}/memories`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: testMessage }],
-          user_id: "setup-test",
-        }),
+        body: JSON.stringify(buildSetupQuickTestPayload(testMessage)),
       });
 
       if (!res.ok) {
@@ -350,7 +361,24 @@ export default function SetupPage() {
               <p className="text-sm text-onSurface-danger-primary">{error}</p>
             )}
 
-            {step === 0 && (
+            {step === 0 && showLoginRecovery && (
+              <div className="space-y-3">
+                {recoveryReloadAvailable && (
+                  <Button
+                    className="w-full"
+                    onClick={() => window.location.reload()}
+                    type="button"
+                  >
+                    Reload session
+                  </Button>
+                )}
+                <Button asChild className="w-full">
+                  <Link href="/login">Go to sign in</Link>
+                </Button>
+              </div>
+            )}
+
+            {step === 0 && !showLoginRecovery && (
               <form onSubmit={handleStep1} className="space-y-4">
                 <div className="space-y-1">
                   <Label htmlFor="setup-name">Name</Label>
@@ -719,7 +747,7 @@ export default function SetupPage() {
                   <pre className="text-xs bg-surface-default-secondary p-3 rounded font-mono overflow-x-auto">{`curl -X POST ${apiUrl}/memories \\
   -H "X-API-Key: ${apiKey}" \\
   -H "Content-Type: application/json" \\
-  -d '{"messages": [{"role": "user", "content": "${testMessage}"}], "user_id": "setup-test"}'`}</pre>
+  -d '{"messages": [{"role": "user", "content": "${testMessage}"}]}'`}</pre>
                 </div>
                 {!testSuccess ? (
                   <>

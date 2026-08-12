@@ -1,0 +1,42 @@
+name: ram0
+
+services:
+  mem0:
+    container_name: ram0_api
+    image: ${RAM0_API_IMAGE:?Set RAM0_API_IMAGE to an immutable digest reference}
+    build: !reset null
+    restart: unless-stopped
+    ports: !override
+      - "${RAM0_HOST_IP:?Set RAM0_HOST_IP in server/.env}:18888:8000"
+    volumes: !override
+      - /mnt/user/appdata/mem0/data/history:/app/history
+    command: >
+      sh -c "alembic upgrade head && exec uvicorn main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DASHBOARD_URL: ${RAM0_DASHBOARD_URL:?Set RAM0_DASHBOARD_URL in server/.env}
+      MEM0_TELEMETRY: "false"
+      RAM0_REVISION: ${RAM0_REVISION:?Set RAM0_REVISION to the deployed Git SHA}
+
+  postgres:
+    container_name: ram0_postgres
+    restart: unless-stopped
+    ports: !reset []
+    volumes: !override
+      - /mnt/user/appdata/mem0/data/postgres:/var/lib/postgresql/data
+      - /mnt/user/appdata/mem0/repo/server/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+
+  mem0-dashboard:
+    container_name: ram0_dashboard
+    image: ${RAM0_DASHBOARD_IMAGE:?Set RAM0_DASHBOARD_IMAGE to an immutable digest reference}
+    build: !reset null
+    restart: unless-stopped
+    ports: !override
+      - "${RAM0_HOST_IP:?Set RAM0_HOST_IP in server/.env}:13000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${RAM0_PUBLIC_API_URL:?Set RAM0_PUBLIC_API_URL in server/.env}
+      API_INTERNAL_URL: http://mem0:8000
+      NEXT_PUBLIC_INSTANCE_NAME: Ram0
+
+networks:
+  mem0_network:
+    name: ram0_network

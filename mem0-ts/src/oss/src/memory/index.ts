@@ -556,18 +556,11 @@ export class Memory {
     }
   }
 
-  private escapeScopeValue(val: unknown): string {
-    return String(val)
-      .replace(/%/g, "%25")
-      .replace(/&/g, "%26")
-      .replace(/=/g, "%3D");
-  }
-
   private buildSessionScope(filters: SearchFilters): string {
     const parts: string[] = [];
     for (const key of ["agent_id", "run_id", "user_id"].sort()) {
       const val = (filters as any)[key];
-      if (val) parts.push(`${key}=${this.escapeScopeValue(val)}`);
+      if (val) parts.push(`${key}=${val}`);
     }
     return parts.join("&");
   }

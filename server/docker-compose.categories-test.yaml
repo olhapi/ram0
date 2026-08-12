@@ -1,0 +1,92 @@
+name: ram0-categories-test
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ram0-test-only
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -d postgres -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  openai-stub:
+    build:
+      context: .
+      dockerfile: test-support.Dockerfile
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  ram0-api:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    environment:
+      OPENAI_API_KEY: test-key
+      OPENAI_BASE_URL: http://openai-stub:8080/v1
+      AUTH_DISABLED: "true"
+      JWT_SECRET: "ram0-categories-test-only-jwt-secret"
+      MEM0_TELEMETRY: "false"
+      CATEGORY_WORKER_ENABLED: ${CATEGORY_WORKER_ENABLED:-true}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ram0-test-only
+      APP_DB_NAME: mem0_app
+      HISTORY_DB_PATH: /app/history/history.db
+      DASHBOARD_URL: http://localhost:${RAM0_DASHBOARD_PORT:-13000}
+    ports:
+      - "127.0.0.1:${RAM0_API_PORT:-18888}:8000"
+    volumes:
+      - api_history:/app/history
+    depends_on:
+      postgres:
+        condition: service_healthy
+      openai-stub:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=2).read()
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  ram0-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${RAM0_API_PORT:-18888}
+      API_INTERNAL_URL: http://ram0-api:8000
+      NEXT_PUBLIC_INSTANCE_NAME: Ram0
+    ports:
+      - "127.0.0.1:${RAM0_DASHBOARD_PORT:-13000}:3000"
+    depends_on:
+      ram0-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres_data:
+  api_history:

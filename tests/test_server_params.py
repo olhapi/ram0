@@ -17,6 +17,7 @@ from mem0.exceptions import ValidationError as Mem0ValidationError
 pytest.importorskip("fastapi", reason="fastapi not installed")
 
 from fastapi.testclient import TestClient
+from tests.server_app_test_support import install_server_runtime_doubles
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -36,7 +37,10 @@ def _mock_memory():
     mock_instance.delete_all.return_value = {"message": "Memories deleted"}
     mock_instance.reset.return_value = None
 
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "fake-key", "ADMIN_API_KEY": ""}):
+    with patch.dict(
+        os.environ,
+        {"OPENAI_API_KEY": "fake-key", "ADMIN_API_KEY": "", "AUTH_DISABLED": "true"},
+    ):
         with patch("mem0.Memory.from_config", return_value=mock_instance):
             yield mock_instance
 
@@ -44,10 +48,16 @@ def _mock_memory():
 @pytest.fixture
 def client(_mock_memory):
     """Return a TestClient wired to the server app with mocked Memory."""
-    import server.main as server_main
-    with patch.dict(os.environ, {"ADMIN_API_KEY": ""}):
+    import auth
+
+    with patch.dict(os.environ, {"ADMIN_API_KEY": "", "AUTH_DISABLED": "true"}):
+        importlib.reload(auth)
+        import server.main as server_main
+
         importlib.reload(server_main)
-    return TestClient(server_main.app)
+        install_server_runtime_doubles(server_main)
+        with TestClient(server_main.app) as test_client:
+            yield test_client
 
 
 @pytest.fixture
@@ -348,7 +358,8 @@ class TestExistingParamsUnchanged:
         _, kwargs = mock_memory.add.call_args
         assert kwargs["user_id"] == "u1"
         assert kwargs["agent_id"] == "a1"
-        assert kwargs["metadata"] == {"source": "test"}
+        assert kwargs["metadata"]["source"] == "test"
+        assert isinstance(kwargs["metadata"]["_category_origin"], str)
 
 
 # ===========================================================================

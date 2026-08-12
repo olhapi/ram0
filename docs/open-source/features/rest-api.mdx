@@ -29,7 +29,7 @@ The Mem0 REST API server exposes every OSS memory operation over HTTP. Run it al
 
 ## Feature
 
-- **CRUD endpoints:** Create, retrieve, search, update, delete, and reset memories by `user_id`, `agent_id`, or `run_id`.
+- **CRUD endpoints:** Create, retrieve, search, update, delete, and reset memories in the authenticated account namespace. The credential-derived account UUID (`user_id`) is the ownership boundary; `agent_id` and `run_id` only organize memories inside it and never grant access.
 - **Authentication:** On by default. Dashboard sessions use JWTs; programmatic clients use per-user `X-API-Key` headers. Legacy `ADMIN_API_KEY` is still supported.
 - **Status health check:** Access base routes to confirm the server is online.
 - **OpenAPI explorer:** Visit `/docs` for interactive testing and schema reference.
@@ -161,8 +161,7 @@ curl -X POST http://localhost:8888/memories \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <access_token>" \
   -d '{
-    "messages": [{"role": "user", "content": "I love pizza."}],
-    "user_id": "alice"
+    "messages": [{"role": "user", "content": "I love pizza."}]
   }'
 ```
 
@@ -177,16 +176,21 @@ curl -X POST http://localhost:8888/memories \
   -H "Content-Type: application/json" \
   -H "X-API-Key: m0sk_your_key_here" \
   -d '{
-    "messages": [{"role": "user", "content": "I love pizza."}],
-    "user_id": "alice"
+    "messages": [{"role": "user", "content": "I love pizza."}]
   }'
 ```
 
-Per-user keys inherit the creating user's scope. List or revoke them via `GET /api-keys` and `DELETE /api-keys/{id}`.
+Per-user keys inherit the creating user's scope. Ram0 derives the canonical
+memory `user_id` from the JWT or API-key owner; a request body, query value, or
+search filter that attempts to select a `user_id` is rejected. List or revoke
+keys via `GET /api-keys` and `DELETE /api-keys/{id}`.
 
 ### Legacy `ADMIN_API_KEY`
 
-Set the `ADMIN_API_KEY` environment variable and send it as `X-API-Key`. The request is treated as admin-level and is not tied to a dashboard user. This mode is kept for back-compat with older self-hosted deployments: prefer JWT or per-user keys for new setups.
+Set the `ADMIN_API_KEY` environment variable and send it as `X-API-Key`. This
+is a legacy bootstrap/back-compat credential. Once an account exists, protected
+memory operations use the normal fallback account and still have no cross-user
+memory bypass. Prefer JWTs or per-user keys for new setups.
 
 ```bash
 ADMIN_API_KEY=your-long-admin-key
@@ -205,11 +209,11 @@ ADMIN_API_KEY=your-long-admin-key
 ```bash
 curl -X POST http://localhost:8888/memories \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: m0sk_your_key_here" \
   -d '{
     "messages": [
       {"role": "user", "content": "I love fresh vegetable pizza."}
-    ],
-    "user_id": "alice"
+    ]
   }'
 ```
 
@@ -220,9 +224,9 @@ curl -X POST http://localhost:8888/memories \
 ```bash
 curl -X POST http://localhost:8888/search \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: m0sk_your_key_here" \
   -d '{
-    "query": "vegetable",
-    "user_id": "alice"
+    "query": "vegetable"
   }'
 ```
 
@@ -231,16 +235,213 @@ Set `explain` to inspect the scoring signals used by OSS hybrid search:
 ```bash
 curl -X POST http://localhost:8888/search \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: m0sk_your_key_here" \
   -d '{
     "query": "vegetable pizza",
-    "user_id": "alice",
     "explain": true
   }'
 ```
 
 Each returned memory includes `score_details` only when explanation mode is enabled.
 
-### Explore with OpenAPI docs
+## Custom categories (Ram0)
+
+<Info>
+  Custom categories are a Ram0 addition to the self-hosted REST server and dashboard. This contract is not added to the
+  upstream Python or TypeScript SDKs or to the hosted Mem0 Platform.
+</Info>
+
+Ram0 labels a memory asynchronously with zero or more names from one effective catalog. Classification uses the
+server's configured memory LLM as an additional call, without changing the core extraction contract. A successful core
+memory operation remains successful if category queueing or classification fails.
+
+### Choose the effective catalog
+
+The server applies strict replacement precedence for each new classification job:
+
+1. A non-empty `custom_categories` value on that `POST /memories` request.
+2. The authenticated owner's saved catalog when it contains at least one definition.
+3. The ordered server defaults: `personal_details`, `family`, `professional_details`, `sports`, `travel`, `food`,
+   `music`, `health`, `technology`, `hobbies`, `fashion`, `entertainment`, `milestones`, `user_preferences`, `misc`.
+
+A per-call catalog is not persisted. It must be a non-empty list of one-key name-to-description objects; an empty or
+malformed list returns HTTP 422. For example:
+
+```json
+{
+  "messages": [{"role": "user", "content": "My invoice is overdue"}],
+  "custom_categories": [{"billing": "Invoices, payments, and account balances"}]
+}
+```
+
+Category names must match `^[a-z][a-z0-9_]*$`, be 1–64 characters long, and be unique. Descriptions must contain 1–500
+characters. A catalog can contain at most 50 definitions, and definition order is preserved.
+
+Every queued job snapshots the selected catalog. Per-call definitions do not become the saved owner catalog, and
+later catalog changes do not alter a queued job. Catalog levels replace rather than merge: the first saved definition
+replaces all defaults as the active catalog, while deleting the final saved definition restores the full defaults.
+
+### Read category results
+
+Every returned memory has top-level `categories` and `category_status` fields. They are not nested under `metadata`.
+Interpret each pair separately:
+
+| `categories` | `category_status` | Meaning |
+|---|---|---|
+| `null` | `pending` | Durable classification is queued, processing, or waiting to retry. |
+| `[]` | `completed` | Classification completed successfully and selected no labels. |
+| `[]` | `failed` | Classification exhausted its attempts, or durable enqueue failed. |
+| `null` | `unclassified` | Legacy memory that has never entered the category lifecycle. |
+| `["billing"]` (or multiple names) | `completed` | Classification completed with one or more allowlisted labels. |
+
+`category_status` is distinct from the durable job state. Job states are `queued`, `processing`, `retrying`,
+`completed`, `failed`, and `cancelled`.
+
+### Manage the owner catalog
+
+Catalog reads require normal authentication. The legacy global catalog is a validated one-time template: on the first
+catalog read or mutation for an owner, Ram0 copies it into that owner's independent catalog. Later edits affect only
+that owner. Category catalogs guide classification; they are not an authorization boundary. Historical labels are
+never rewritten by catalog edits.
+
+This catalog migration is non-destructive: catalog CRUD applies only to future classification, while existing jobs
+retain their snapshotted catalog and existing labels remain unchanged. Category CRUD and explicit reclassification are
+both scoped to the authenticated owner's memories.
+
+Every authenticated user can manage only their own saved catalog. Job inspection, counts, previews, and
+reclassification are restricted to the same authenticated owner's memories.
+
+| Method | Path | Status | Request / behavior |
+|---|---|---:|---|
+| `GET` | `/categories` | 200 | Return the caller's saved and effective catalog. |
+| `POST` | `/categories` | 201 | Append one definition to the authenticated user's catalog. |
+| `PUT` | `/categories` | 200 | Replace the authenticated user's saved catalog; send `[]` to restore defaults. |
+| `PATCH` | `/categories/{name}` | 200 | Change one definition in the authenticated user's saved catalog. |
+| `DELETE` | `/categories/{name}` | 200 | Delete one definition from the authenticated user's saved catalog. |
+| `GET` | `/categories/jobs` | 200 | List newest durable jobs, optionally filtered by repeated `state` and `limit` (1–100, default 100). |
+| `POST` | `/categories/reclassify/preview` | 200 | Estimate historical work without queueing jobs or calling the LLM. |
+| `POST` | `/categories/reclassify` | 202 | Queue explicitly confirmed historical work. |
+
+Every catalog response has this shape:
+
+```json
+{
+  "saved": [{"name": "billing", "description": "Invoices and payments."}],
+  "active": [{"name": "billing", "description": "Invoices and payments."}],
+  "source": "user",
+  "counts": {"billing": 12, "old_label": 3},
+  "retired": [{"name": "old_label", "count": 3}]
+}
+```
+
+- `saved` is the persisted owner list; it is empty after resetting to defaults.
+- `active` is the catalog future non-overridden jobs will use.
+- `source` is `user` or `defaults`.
+- `counts` includes every label still present on memories, including retired labels.
+- `retired` is the alphabetically ordered subset of counted names absent from `active`.
+
+Changing, renaming, deleting, replacing, or resetting the catalog **does not retag historical memories**. Use explicit
+reclassification for that. Existing labels remain filterable and appear in `counts` / `retired` until those memories
+are reclassified.
+
+The jobs endpoint returns only this operationally safe field set:
+
+```json
+[
+  {
+    "id": "<job-uuid>",
+    "memory_id": "<memory-id>",
+    "state": "retrying",
+    "attempts": 1,
+    "created_at": "2026-08-08T12:00:00Z",
+    "updated_at": "2026-08-08T12:00:01Z",
+    "started_at": "2026-08-08T12:00:01Z",
+    "completed_at": null,
+    "next_attempt_at": "2026-08-08T12:00:03Z",
+    "error_code": "provider_error",
+    "error_message": "Category provider request failed"
+  }
+]
+```
+
+Catalog snapshots, memory hashes, lease owner IDs, and raw provider responses are never exposed by this route.
+
+### Preview and start historical reclassification
+
+Preview defaults to `unclassified_failed`, which selects only `unclassified` and `failed` memories. Use `all` to select
+every memory. Optional token prices are non-negative rates per million tokens and must be supplied as a pair:
+
+```json
+{
+  "scope": "all",
+  "input_rate_per_million": 2.0,
+  "output_rate_per_million": 8.0
+}
+```
+
+The response contains `scope`, `eligible_memories`, `estimated_calls`, `estimated_input_tokens`,
+`estimated_output_tokens`, and `estimated_cost`. Without both rates, `estimated_cost` is `null`; Ram0 does not invent
+provider pricing. Rates are not persisted. Input tokens are estimated as one quarter of the exact classifier prompt
+characters, rounded up with a minimum of one; output is a worst-case estimate containing every active catalog name,
+also rounded up with a minimum of one. `estimated_calls` equals the number of eligible memories. Cost is:
+
+```text
+(estimated_input_tokens * input_rate_per_million
+ + estimated_output_tokens * output_rate_per_million) / 1,000,000
+```
+
+Preview creates no jobs and makes no LLM calls. Start the same scope with exact confirmation:
+
+```json
+{
+  "scope": "all",
+  "confirm": "RECLASSIFY"
+}
+```
+
+The HTTP 202 response contains `created_jobs`, `skipped_active_jobs`, and `eligible_memories`. Starting again is safe for
+currently active work: each memory can have only one active job, so an existing queued, processing, or retrying job is
+counted in `skipped_active_jobs`.
+
+During uninterrupted processing, handled processing errors (including classifier/provider errors) after recorded
+attempts 1 and 2 retry after 2 and 4 seconds respectively; an error at attempt 3 is terminal with the default failure
+threshold. The configured value is checked only after such an error, not as a hard cap on claims: reclaiming an expired
+processing lease increments the recorded attempt count before any later handled processing error evaluates the
+threshold. A text update replaces active category work and queues the current text; a metadata-only update does not.
+Deleted or hash-replaced memories cause stale jobs to become `cancelled` without a late category write. `/reset`
+deletes only the caller's memories and purges every category-job row owned by that caller, without changing other
+owners' memories or jobs. Adds and resets for one owner are serialized across API processes so a category job cannot
+land between memory deletion and job purge. If that purge fails after memory deletion, `/reset` returns HTTP 503 with
+a generic partial-failure message instead of reporting success. See the
+[server operator guide](https://github.com/olhapi/ram0/blob/main/server/README.md#custom-categories-ram0) for worker
+environment values, restart leases, and migration commands.
+
+### Filter by category
+
+For `GET /memories`, repeat the `categories` query parameter. The match is **ANY**, not all:
+
+```bash
+curl --get http://localhost:8888/memories \
+  -H "X-API-Key: m0sk_your_key_here" \
+  --data-urlencode "categories=billing" \
+  --data-urlencode "categories=support"
+```
+
+The same ANY semantics are available in nested `POST /search` filters:
+
+```json
+{
+  "query": "overdue account",
+  "filters": {"categories": {"in": ["billing", "support"]}}
+}
+```
+
+Categories are LLM-generated organizational metadata. **Do not use a category filter for authorization, tenant
+isolation, or data visibility.** Keep authentication enabled; Ram0 derives the
+deterministic account UUID (`user_id`) from credentials. `agent_id` and
+`run_id` are within-account organization fields, not authorization boundaries.
+
+## Explore with OpenAPI docs
 
 1. Navigate to `http://localhost:8888/docs` (Compose) or `http://localhost:8000/docs` (raw Docker / uvicorn).
 2. Pick an endpoint (e.g., `POST /search`).  
@@ -264,14 +465,27 @@ The OSS REST server exposes the following endpoints. None use the `/v1/` prefix.
 | `GET` | `/configure` | Get the current memory configuration |
 | `GET` | `/configure/providers` | List the LLM and embedder providers bundled in the container |
 | `POST` | `/memories` | Create memories |
-| `GET` | `/memories` | Get all memories (filter by `user_id`, `agent_id`, or `run_id`) |
+| `GET` | `/memories` | Get the caller's memories; optional `agent_id` / `run_id` narrow only that caller's namespace |
 | `GET` | `/memories/{memory_id}` | Get a specific memory |
 | `PUT` | `/memories/{memory_id}` | Update a memory |
 | `DELETE` | `/memories/{memory_id}` | Delete a specific memory |
-| `DELETE` | `/memories` | Delete all memories for an identifier |
+| `DELETE` | `/memories` | Delete the caller's memories, optionally narrowed by `agent_id` / `run_id` |
 | `GET` | `/memories/{memory_id}/history` | Get memory history |
 | `POST` | `/search` | Search memories |
-| `POST` | `/reset` | Reset all memories |
+| `POST` | `/reset` | Reset only the caller's memories and category jobs |
+
+### Categories (Ram0 self-hosted fork)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/categories` | Read saved/effective catalogs, counts, and retired labels |
+| `POST` | `/categories` | Add one category to the authenticated user's catalog |
+| `PUT` | `/categories` | Replace that catalog or restore its defaults with `[]` |
+| `PATCH` | `/categories/{name}` | Edit or rename one category in that catalog |
+| `DELETE` | `/categories/{name}` | Remove one category from that catalog |
+| `GET` | `/categories/jobs` | Inspect the authenticated user's durable category jobs |
+| `POST` | `/categories/reclassify/preview` | Estimate the authenticated user's historical reclassification |
+| `POST` | `/categories/reclassify` | Start the authenticated user's confirmed historical reclassification |
 
 ### Authentication
 
@@ -284,6 +498,23 @@ The OSS REST server exposes the following endpoints. None use the `/v1/` prefix.
 | `GET` | `/auth/me` | Get the current authenticated user (JWT required) |
 | `PATCH` | `/auth/me` | Update the caller's name or email. 409 if the new email is already in use |
 | `POST` | `/auth/change-password` | Change the caller's password. 401 if the current password is wrong; new password must be at least 8 characters |
+| `POST` | `/auth/invitations/accept` | Accept a one-time copied invitation token and password; returns normal account tokens |
+
+### Account administration
+
+Administrators can create copied, seven-day, one-time member links, revoke a
+pending link, and disable or restore members. There is no email delivery and
+the raw link is returned only at creation; Ram0 stores only its hash. Admin
+status manages accounts but never bypasses memory ownership or grants access to
+another owner's category catalog.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/users` | List accounts and pending invitations (admin) |
+| `POST` | `/admin/invitations` | Create a copied one-time member invitation (admin) |
+| `DELETE` | `/admin/invitations/{id}` | Revoke a pending invitation (admin) |
+| `POST` | `/admin/users/{id}/disable` | Disable a member; immediately blocks JWTs, refresh tokens, and API keys (admin) |
+| `POST` | `/admin/users/{id}/restore` | Restore a disabled member (admin) |
 
 ### API keys
 
@@ -305,8 +536,8 @@ All `/api-keys` endpoints require a JWT.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/entities` | Distinct `user_id` / `agent_id` / `run_id` values with memory counts |
-| `DELETE` | `/entities/{entity_type}/{entity_id}` | Cascade-delete all memories for an entity; `entity_type` is `user`, `agent`, or `run` |
+| `GET` | `/entities` | The authenticated owner's distinct `agent_id` / `run_id` values with memory counts; public `user` entities are not exposed |
+| `DELETE` | `/entities/{entity_type}/{entity_id}` | Delete only the authenticated owner's memories for an `agent` or `run` entity |
 
 The `/auth/*`, `/api-keys`, `/requests`, and `/entities` routes are new to the self-hosted server and primarily back the dashboard, but you can call them directly from your own tooling.
 

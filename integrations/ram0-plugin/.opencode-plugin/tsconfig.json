@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "rewriteRelativeImportExtensions": true,
+    "lib": ["ESNext", "DOM"],
+    "types": ["bun-types", "node"],
+    "declaration": true,
+    "declarationDir": "dist",
+    "outDir": "dist",
+    "noEmit": true
+  },
+  "include": ["*.ts"],
+  "exclude": ["dist", "**/*.test.ts"]
+}

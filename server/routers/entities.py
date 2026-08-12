@@ -2,9 +2,9 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from auth import require_admin, verify_auth
 from errors import upstream_error
 from fastapi import APIRouter, Depends
+from memory_authorization import MemoryPrincipal, require_memory_principal
 from pydantic import BaseModel
 from schemas import MessageResponse
 from server_state import get_memory_instance
@@ -13,8 +13,8 @@ router = APIRouter(prefix="/entities", tags=["entities"])
 
 SCAN_LIMIT = 10_000
 
-EntityType = Literal["user", "agent", "run"]
-TYPE_TO_FIELD: dict[EntityType, str] = {"user": "user_id", "agent": "agent_id", "run": "run_id"}
+EntityType = Literal["agent", "run"]
+TYPE_TO_FIELD: dict[EntityType, str] = {"agent": "agent_id", "run": "run_id"}
 
 
 class Entity(BaseModel):
@@ -25,8 +25,8 @@ class Entity(BaseModel):
     updated_at: Optional[datetime] = None
 
 
-def _iter_payloads() -> list[dict[str, Any]]:
-    results = get_memory_instance().vector_store.list(top_k=SCAN_LIMIT)
+def _iter_payloads(owner_id: str) -> list[dict[str, Any]]:
+    results = get_memory_instance().vector_store.list(filters={"user_id": owner_id}, top_k=SCAN_LIMIT)
     rows = results[0] if results and isinstance(results, list) and isinstance(results[0], list) else results or []
     return [getattr(row, "payload", None) or {} for row in rows]
 
@@ -41,12 +41,12 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
 
 
 @router.get("", response_model=list[Entity])
-def list_entities(_auth=Depends(verify_auth)):
+def list_entities(principal: MemoryPrincipal = Depends(require_memory_principal)):
     buckets: dict[tuple[EntityType, str], dict[str, Any]] = defaultdict(
         lambda: {"total_memories": 0, "created_at": None, "updated_at": None}
     )
 
-    for payload in _iter_payloads():
+    for payload in _iter_payloads(principal.owner_id):
         created = _parse_timestamp(payload.get("created_at"))
         updated = _parse_timestamp(payload.get("updated_at")) or created
 
@@ -68,9 +68,11 @@ def list_entities(_auth=Depends(verify_auth)):
 
 
 @router.delete("/{entity_type}/{entity_id}", response_model=MessageResponse)
-def delete_entity(entity_type: EntityType, entity_id: str, _auth=Depends(require_admin)):
+def delete_entity(
+    entity_type: EntityType, entity_id: str, principal: MemoryPrincipal = Depends(require_memory_principal)
+):
     try:
-        get_memory_instance().delete_all(**{TYPE_TO_FIELD[entity_type]: entity_id})
+        get_memory_instance().delete_all(user_id=principal.owner_id, **{TYPE_TO_FIELD[entity_type]: entity_id})
     except Exception:
         raise upstream_error()
     return MessageResponse(message="Entity deleted")

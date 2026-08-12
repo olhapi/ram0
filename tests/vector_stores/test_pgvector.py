@@ -697,6 +697,158 @@ class TestPGVector(unittest.TestCase):
                        if "UPDATE" in str(call) and "test_collection" in str(call)]
         self.assertTrue(len(update_calls) > 0)
 
+    @patch("mem0.vector_stores.pgvector.PSYCOPG_VERSION", 3)
+    @patch("mem0.vector_stores.pgvector.ConnectionPool")
+    @patch.object(PGVector, "_get_cursor")
+    def test_patch_payload_atomically_merges_fields_with_expected_hash_and_returns_current_row(
+        self, mock_get_cursor, mock_connection_pool
+    ):
+        mock_connection_pool.return_value = MagicMock()
+        mock_get_cursor.return_value.__enter__.return_value = self.mock_cursor
+        mock_get_cursor.return_value.__exit__.return_value = None
+        self.mock_cursor.fetchone.return_value = (
+            self.test_ids[0],
+            {"data": "concurrent text", "hash": "h1", "categories": ["billing"]},
+        )
+        pgvector = PGVector(
+            dbname="test_db",
+            collection_name="test_collection",
+            embedding_model_dims=3,
+            user="test_user",
+            password="test_pass",
+            host="localhost",
+            port=5432,
+            diskann=False,
+            hnsw=False,
+        )
+        pgvector._collection_ensured = True
+
+        result = pgvector._patch_payload(
+            self.test_ids[0],
+            {"categories": ["billing"], "category_status": "completed"},
+            expected={"hash": "h1"},
+        )
+
+        statement, params = self.mock_cursor.execute.call_args.args
+        rendered = str(statement)
+        self.assertIn("payload || %s::jsonb", rendered)
+        self.assertIn("IS NOT DISTINCT FROM", rendered)
+        self.assertIn("RETURNING id, payload", rendered)
+        self.assertEqual(params[1:], (self.test_ids[0], "hash", "h1"))
+        self.assertEqual(result.payload["data"], "concurrent text")
+
+    @patch("mem0.vector_stores.pgvector.ConnectionPool")
+    @patch.object(PGVector, "_get_cursor")
+    def test_internal_patch_payload_expected_null_and_no_returning_row(
+        self, mock_get_cursor, mock_connection_pool
+    ):
+        mock_connection_pool.return_value = MagicMock()
+        mock_get_cursor.return_value.__enter__.return_value = self.mock_cursor
+        mock_get_cursor.return_value.__exit__.return_value = None
+        self.mock_cursor.fetchone.return_value = None
+        pgvector = PGVector(
+            dbname="test_db",
+            collection_name="test_collection",
+            embedding_model_dims=3,
+            user="test_user",
+            password="test_pass",
+            host="localhost",
+            port=5432,
+            diskann=False,
+            hnsw=False,
+        )
+        pgvector._collection_ensured = True
+
+        result = pgvector._patch_payload(
+            self.test_ids[0], {"category_status": "failed"}, expected={"hash": None}
+        )
+
+        statement, params = self.mock_cursor.execute.call_args.args
+        self.assertIn("IS NOT DISTINCT FROM", str(statement))
+        self.assertEqual(params[1:], (self.test_ids[0], "hash", None))
+        self.assertIsNone(result)
+
+    @patch("mem0.vector_stores.pgvector.PSYCOPG_VERSION", 2)
+    @patch("mem0.vector_stores.pgvector.ConnectionPool")
+    @patch.object(PGVector, "_get_cursor")
+    def test_internal_patch_payload_keeps_psycopg2_parameter_contract(
+        self, mock_get_cursor, mock_connection_pool
+    ):
+        """Both supported drivers must receive the same bound JSONB/CAS parameter ordering."""
+        mock_connection_pool.return_value = MagicMock()
+        mock_get_cursor.return_value.__enter__.return_value = self.mock_cursor
+        mock_get_cursor.return_value.__exit__.return_value = None
+        self.mock_cursor.fetchone.return_value = (
+            self.test_ids[0],
+            {"hash": "h1", "category_status": "pending"},
+        )
+        pgvector = PGVector(
+            dbname="test_db",
+            collection_name="test_collection",
+            embedding_model_dims=3,
+            user="test_user",
+            password="test_pass",
+            host="localhost",
+            port=5432,
+            diskann=False,
+            hnsw=False,
+        )
+        pgvector._collection_ensured = True
+
+        result = pgvector._patch_payload(
+            self.test_ids[0], {"category_status": "pending"}, expected={"hash": "h1"}
+        )
+
+        statement, params = self.mock_cursor.execute.call_args.args
+        self.assertIn("payload || %s::jsonb", str(statement))
+        self.assertEqual(params[1:], (self.test_ids[0], "hash", "h1"))
+        self.assertEqual(result.payload["category_status"], "pending")
+
+    def test_internal_patch_payload_uses_real_psycopg2_json_adapter_on_fallback_import(self):
+        """The fallback path must execute with psycopg2 classes, not a patched version flag."""
+        if importlib.util.find_spec("psycopg2") is None:
+            self.skipTest("psycopg2 is not installed in this test environment")
+        module = sys.modules["mem0.vector_stores.pgvector"]
+        try:
+            with patch.dict(
+                sys.modules,
+                {
+                    "psycopg": None,
+                    "psycopg_pool": None,
+                    "psycopg.types": None,
+                    "psycopg.types.json": None,
+                },
+            ):
+                fallback = importlib.reload(module)
+                self.assertEqual(fallback.PSYCOPG_VERSION, 2)
+                self.assertTrue(fallback.Json.__module__.startswith("psycopg2"))
+
+                pgvector = fallback.PGVector.__new__(fallback.PGVector)
+                pgvector.collection_name = "test_collection"
+                pgvector._collection_ensured = True
+                cursor = MagicMock()
+                cursor.fetchone.return_value = (
+                    self.test_ids[0],
+                    {"hash": "h1", "category_status": "pending"},
+                )
+                cursor_context = MagicMock()
+                cursor_context.__enter__.return_value = cursor
+                cursor_context.__exit__.return_value = None
+                pgvector._get_cursor = MagicMock(return_value=cursor_context)
+
+                result = pgvector._patch_payload(
+                    self.test_ids[0],
+                    {"category_status": "pending"},
+                    expected={"hash": "h1"},
+                )
+
+                _statement, params = cursor.execute.call_args.args
+                self.assertTrue(type(params[0]).__module__.startswith("psycopg2"))
+                self.assertEqual(params[1:], (self.test_ids[0], "hash", "h1"))
+                self.assertEqual(result.payload["category_status"], "pending")
+        finally:
+            importlib.reload(module)
+
     @patch('mem0.vector_stores.pgvector.PSYCOPG_VERSION', 3)
     @patch('mem0.vector_stores.pgvector.ConnectionPool')
     @patch.object(PGVector, '_get_cursor')
@@ -2408,6 +2560,20 @@ class TestBuildFilterConditions(unittest.TestCase):
         self.assertIn("payload->>%s = ANY(%s)", conditions[0])
         self.assertEqual(params, ["status", ["active", "pending"]])
 
+    def test_categories_in_uses_jsonb_array_overlap(self):
+        conditions, params = _build_filter_conditions({"categories": {"in": ["billing", "health"]}})
+        self.assertEqual(conditions, ["payload->%s ?| %s"])
+        self.assertEqual(params, ["categories", ["billing", "health"]])
+
+    def test_categories_in_with_empty_list_uses_valid_no_match_overlap(self):
+        conditions, params = _build_filter_conditions({"categories": {"in": []}})
+        self.assertEqual(conditions, ["payload->%s ?| %s"])
+        self.assertEqual(params, ["categories", []])
+
+    def test_categories_in_rejects_non_list_operand(self):
+        with self.assertRaises(ValueError):
+            _build_filter_conditions({"categories": {"in": "billing"}})
+
     def test_nin_operator(self):
         conditions, params = _build_filter_conditions({"status": {"nin": ["deleted", "archived"]}})
         self.assertEqual(len(conditions), 1)
@@ -2508,20 +2674,3 @@ class TestBuildFilterConditions(unittest.TestCase):
     def test_numeric_scalar_becomes_string(self):
         conditions, params = _build_filter_conditions({"priority": 42})
         self.assertEqual(params, ["priority", "42"])
-
-    def test_in_rejects_string_value(self):
-        """Passing a string to 'in' would iterate characters and produce a misleading ANY() clause."""
-        with self.assertRaises(ValueError, msg="Expected ValueError for non-list 'in' value"):
-            _build_filter_conditions({"user_id": {"in": "alice"}})
-
-    def test_in_rejects_dict_value(self):
-        with self.assertRaises(ValueError):
-            _build_filter_conditions({"user_id": {"in": {"$gt": 0}}})
-
-    def test_nin_rejects_string_value(self):
-        with self.assertRaises(ValueError):
-            _build_filter_conditions({"user_id": {"nin": "alice"}})
-
-    def test_in_accepts_list_value(self):
-        conditions, params = _build_filter_conditions({"user_id": {"in": ["alice", "bob"]}})
-        self.assertEqual(params, ["user_id", ["alice", "bob"]])

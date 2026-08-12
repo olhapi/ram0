@@ -41,7 +41,7 @@ export function LockedPage({
         <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">
           <div className="flex-1">
             <p className="text-sm font-medium">
-              This feature is available in Mem0 Cloud and Enterprise.
+              This feature is available in Cloud and Enterprise.
             </p>
           </div>
           <div className="flex gap-3">

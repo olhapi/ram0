@@ -1,0 +1,1 @@
+{"name":"ram0","version":"0.1.0","description":"Self-hosted, account-isolated durable memory automation for Cursor.","author":{"name":"Ram0"},"license":"Apache-2.0","keywords":["ram0","memory","self-hosted"],"hooks":"./hooks/cursor-hooks.json","mcpServers":"./.cursor-mcp.json"}

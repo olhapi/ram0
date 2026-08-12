@@ -6,6 +6,7 @@ import {
   Activity,
   ChartLine,
   ChevronDown,
+  CircleHelp,
   FolderInput,
   GalleryVerticalEnd,
   KeyRound,
@@ -35,12 +36,14 @@ import {
 } from "@/components/ui/sidebar";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 export function MainNav({
   className,
   ...props
 }: React.HTMLAttributes<HTMLElement>) {
   const pathname = usePathname();
+  const { isAdmin } = useAuth();
   const isSidebarCollapsed = useSelector(
     (state: RootState) => state.layout.isSidebarCollapsed,
   );
@@ -63,12 +66,16 @@ export function MainNav({
                   </SidebarGroupLabel>
                 )}
                 {[
-                  {
-                    title: "Requests",
-                    url: "/dashboard/requests",
-                    icon: Activity,
-                    active: pathname === "/dashboard/requests",
-                  },
+                  ...(isAdmin
+                    ? [
+                        {
+                          title: "Requests",
+                          url: "/dashboard/requests",
+                          icon: Activity,
+                          active: pathname === "/dashboard/requests",
+                        },
+                      ]
+                    : []),
                   {
                     title: "Memories",
                     url: "/dashboard/memories",
@@ -81,6 +88,22 @@ export function MainNav({
                     icon: Users,
                     active: pathname === "/dashboard/entities",
                   },
+                  {
+                    title: "Categories",
+                    url: "/dashboard/categories",
+                    icon: Tags,
+                    active: pathname === "/dashboard/categories",
+                  },
+                  ...(isAdmin
+                    ? [
+                        {
+                          title: "Users",
+                          url: "/dashboard/users",
+                          icon: Users,
+                          active: pathname === "/dashboard/users",
+                        },
+                      ]
+                    : []),
                 ].map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -130,11 +153,6 @@ export function MainNav({
                 )}
                 <CollapsibleContent className="flex flex-col gap-0">
                   {[
-                    {
-                      title: "Categories",
-                      url: "/dashboard/categories",
-                      icon: Tags,
-                    },
                     {
                       title: "Webhooks",
                       url: "/dashboard/webhooks",
@@ -214,6 +232,12 @@ export function MainNav({
                     url: "/dashboard/settings",
                     icon: Settings,
                     active: pathname === "/dashboard/settings",
+                  },
+                  {
+                    title: "Help",
+                    url: "/dashboard/help",
+                    icon: CircleHelp,
+                    active: pathname === "/dashboard/help",
                   },
                 ].map((item) => (
                   <SidebarMenuItem key={item.title}>

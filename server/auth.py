@@ -60,11 +60,12 @@ def create_access_token(user_id: str, role: str) -> str:
     return jwt.encode(payload, _get_secret(), algorithm=JWT_ALGORITHM)
 
 
-def create_refresh_token(user_id: str, db: Session) -> str:
+def create_refresh_token(user_id: str, db: Session, *, commit: bool = True) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     jti = uuid.uuid4()
     db.add(RefreshTokenJti(jti=jti, user_id=uuid.UUID(user_id), expires_at=expire))
-    db.commit()
+    if commit:
+        db.commit()
     payload = {"sub": user_id, "exp": expire, "jti": str(jti), "type": "refresh"}
     return jwt.encode(payload, _get_secret(), algorithm=JWT_ALGORITHM)
 
@@ -113,14 +114,18 @@ def _get_default_user(db: Session) -> User | None:
     return db.scalar(select(User).order_by(User.created_at.asc()))
 
 
+def ensure_active_user(user: User | None) -> User:
+    if user is None or user.disabled_at is not None:
+        raise HTTPException(status_code=401, detail="Invalid or expired credentials.")
+    return user
+
+
 def _resolve_user_from_jwt(token: str, db: Session) -> User:
     payload = decode_token(token)
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type.")
     user = db.get(User, payload.get("sub"))
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found.")
-    return user
+    return ensure_active_user(user)
 
 
 def _resolve_user_from_api_key(key: str, db: Session) -> User:
@@ -131,14 +136,37 @@ def _resolve_user_from_api_key(key: str, db: Session) -> User:
 
     for candidate in candidates:
         if verify_api_key_hash(key, candidate.key_hash):
+            user = ensure_active_user(db.get(User, candidate.created_by))
             candidate.last_used_at = datetime.now(timezone.utc)
             db.commit()
-            user = db.get(User, candidate.created_by)
-            if user is None:
-                raise HTTPException(status_code=401, detail="API key owner not found.")
             return user
 
     raise HTTPException(status_code=401, detail="Invalid API key.")
+
+
+def _invalid_bearer_credentials() -> HTTPException:
+    """Return the non-enumerating REST bearer failure shared by JWTs and API keys."""
+    return HTTPException(
+        status_code=401,
+        detail="Authentication required.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _resolve_user_from_bearer_credential(token: str, db: Session) -> User:
+    """Resolve a JWT first, then an account API key without exposing which lookup failed."""
+    try:
+        return _resolve_user_from_jwt(token, db)
+    except HTTPException as jwt_error:
+        if jwt_error.status_code != 401:
+            raise
+
+    try:
+        return _resolve_user_from_api_key(token, db)
+    except HTTPException as api_key_error:
+        if api_key_error.status_code != 401:
+            raise
+        raise _invalid_bearer_credentials() from None
 
 
 async def verify_auth(
@@ -146,7 +174,7 @@ async def verify_auth(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_api_key: str | None = Depends(api_key_header),
 ) -> User | None:
-    """Authenticate via JWT, X-API-Key, or legacy ADMIN_API_KEY. Returns User or None.
+    """Authenticate via a Bearer JWT/API key, X-API-Key, or legacy ADMIN_API_KEY. Returns User or None.
 
     A short-lived session is opened only on the branches that query the DB, so no
     pooled connection is held for the lifetime of the (possibly long-running) request.
@@ -154,7 +182,7 @@ async def verify_auth(
     if credentials is not None:
         _mark_auth_type(request, "bearer")
         with SessionLocal() as db:
-            return _resolve_user_from_jwt(credentials.credentials, db)
+            return _resolve_user_from_bearer_credential(credentials.credentials, db)
 
     if x_api_key is not None:
         if ADMIN_API_KEY and secrets.compare_digest(x_api_key, ADMIN_API_KEY):
@@ -185,13 +213,18 @@ async def require_auth(
             with SessionLocal() as db:
                 default_user = _get_default_user(db)
             if default_user is not None:
-                return default_user
+                return ensure_active_user(default_user)
         raise HTTPException(status_code=401, detail="Authentication required.")
     return user
 
 
 _BOOTSTRAP_ADMIN = User(
-    id=uuid.UUID(int=0), name="admin_api_key", email="", password_hash="", role="admin", created_at=datetime.min.replace(tzinfo=timezone.utc),
+    id=uuid.UUID(int=0),
+    name="admin_api_key",
+    email="",
+    password_hash="",
+    role="admin",
+    created_at=datetime.min.replace(tzinfo=timezone.utc),
 )
 
 
@@ -210,6 +243,7 @@ async def require_admin(
             with SessionLocal() as db:
                 default_user = _get_default_user(db)
             if default_user is not None:
+                default_user = ensure_active_user(default_user)
                 if default_user.role != "admin":
                     raise HTTPException(status_code=403, detail="Admin role required.")
                 return default_user

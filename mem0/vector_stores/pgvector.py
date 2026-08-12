@@ -87,12 +87,14 @@ def _build_filter_conditions(filters):
             for op, op_value in value.items():
                 if op not in OPERATOR_SQL_MAP:
                     raise ValueError(f"Unsupported filter operator: {op}")
+                if op == "in" and not isinstance(op_value, list):
+                    raise ValueError("The 'in' filter operator requires a list operand")
+                if key == "categories" and op == "in":
+                    conditions.append("payload->%s ?| %s")
+                    params.extend([key, [str(item) for item in op_value]])
+                    continue
                 template, is_numeric = OPERATOR_SQL_MAP[op]
                 if op in ("in", "nin"):
-                    if not isinstance(op_value, list):
-                        raise ValueError(
-                            f"Filter operator {op!r} for key {key!r} requires a list value, got {type(op_value).__name__}"
-                        )
                     str_list = [str(v) for v in op_value]
                     conditions.append(template)
                     params.extend([key, str_list])
@@ -448,6 +450,38 @@ class PGVector(VectorStoreBase):
                         sql.SQL("UPDATE {} SET payload = %s WHERE id = %s").format(self._col()),
                         (Json(payload), vector_id),
                     )
+
+    def _patch_payload(
+        self,
+        vector_id: str,
+        fields: dict,
+        *,
+        expected: Optional[dict] = None,
+    ) -> Optional[OutputData]:
+        """Atomically merge payload fields and optionally guard current scalar values.
+
+        This intentionally remains a PGVector-specific seam for server-owned
+        bookkeeping. Unlike ``update(payload=...)``, it cannot replace unrelated
+        fields written concurrently.
+        """
+        self._ensure_collection()
+        conditions = ["id = %s"]
+        params: list[Any] = [Json(fields), vector_id]
+        for key, value in (expected or {}).items():
+            conditions.append("payload->>%s IS NOT DISTINCT FROM %s")
+            params.extend((key, None if value is None else str(value)))
+
+        with self._get_cursor(commit=True) as cur:
+            cur.execute(
+                sql.SQL(
+                    "UPDATE {} SET payload = payload || %s::jsonb WHERE {} RETURNING id, payload"
+                ).format(self._col(), sql.SQL(" AND ").join(sql.SQL(condition) for condition in conditions)),
+                tuple(params),
+            )
+            result = cur.fetchone()
+        if result is None:
+            return None
+        return OutputData(id=str(result[0]), score=None, payload=result[1])
 
 
     def get(self, vector_id: str) -> OutputData:

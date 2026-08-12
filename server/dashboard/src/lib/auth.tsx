@@ -9,6 +9,9 @@ import {
 } from "react";
 import { api, setAccessToken } from "@/utils/api";
 import { AUTH_ENDPOINTS } from "@/utils/api-endpoints";
+import { persistAuthenticatedSession } from "@/lib/authenticated-session";
+import { storeRefreshToken } from "@/lib/refresh-token-cookie";
+import { singleFlight } from "@/lib/single-flight";
 
 export interface AuthUser {
   id: string;
@@ -24,6 +27,7 @@ interface AuthContextValue {
   isAdmin: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
+  acceptInvitation: (token: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -34,23 +38,16 @@ export const AuthContext = createContext<AuthContextValue>({
   isAdmin: false,
   login: async () => {},
   register: async () => {},
+  acceptInvitation: async () => {},
   logout: async () => {},
   refreshUser: async () => {},
 });
-
-async function storeRefreshToken(refreshToken: string) {
-  await fetch("/api/auth/refresh", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
-}
 
 async function clearRefreshToken() {
   await fetch("/api/auth/refresh", { method: "DELETE" });
 }
 
-async function refreshSession(): Promise<boolean> {
+const refreshSession = singleFlight(async (): Promise<boolean> => {
   const res = await fetch("/api/auth/refresh", {
     method: "POST",
     credentials: "include",
@@ -59,7 +56,7 @@ async function refreshSession(): Promise<boolean> {
   const data = await res.json();
   setAccessToken(data.access_token);
   return true;
-}
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -90,9 +87,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       const res = await api.post(AUTH_ENDPOINTS.LOGIN, { email, password });
-      setAccessToken(res.data.access_token);
-      await storeRefreshToken(res.data.refresh_token);
-      await loadUser();
+      await persistAuthenticatedSession(res.data, {
+        loadUser,
+        persistRefreshToken: storeRefreshToken,
+        setAccessToken,
+      });
     },
     [loadUser],
   );
@@ -104,9 +103,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         password,
       });
-      setAccessToken(res.data.access_token);
-      await storeRefreshToken(res.data.refresh_token);
-      await loadUser();
+      await persistAuthenticatedSession(res.data, {
+        loadUser,
+        persistRefreshToken: storeRefreshToken,
+        setAccessToken,
+      });
+    },
+    [loadUser],
+  );
+
+  const acceptInvitation = useCallback(
+    async (token: string, password: string) => {
+      const res = await api.post(AUTH_ENDPOINTS.ACCEPT_INVITATION, {
+        token,
+        password,
+      });
+      await persistAuthenticatedSession(res.data, {
+        loadUser,
+        persistRefreshToken: storeRefreshToken,
+        setAccessToken,
+      });
     },
     [loadUser],
   );
@@ -125,10 +141,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin: user?.role === "admin",
       login,
       register,
+      acceptInvitation,
       logout,
       refreshUser: loadUser,
     }),
-    [user, isLoading, login, register, logout, loadUser],
+    [user, isLoading, login, register, acceptInvitation, logout, loadUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

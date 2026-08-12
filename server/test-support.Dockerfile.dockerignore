@@ -1,0 +1,4 @@
+# The deterministic provider stub needs one source file and nothing else.
+**
+!test_support
+!test_support/openai_stub.py

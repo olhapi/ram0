@@ -1,7 +1,7 @@
 ---
 title: "Self-Hosted Setup"
 sidebarTitle: "Self-Hosted Server"
-description: "Stand up the Mem0 REST server and dashboard in a few minutes, with an admin account, API keys, and a live audit log included."
+description: "Stand up the Ram0 REST server and dashboard in a few minutes, with an admin account, API keys, and a live audit log included."
 icon: "rocket-launch"
 ---
 
@@ -9,7 +9,7 @@ The self-hosted bundle ships the REST API and a web dashboard together. Configur
 
 <Info>
   **Use this page when…**
-  - You want a self-hosted Mem0 with a dashboard, not just the Python or Node library.
+  - You want self-hosted Ram0 with a dashboard, not just the Python or Node library.
   - You need per-user API keys and a request audit log for your team.
   - You're upgrading from a pre-1.x server that relied on `ADMIN_API_KEY` or open endpoints.
 </Info>
@@ -113,7 +113,7 @@ On a fresh install the dashboard redirects to `/setup`. Each step submits on Ent
 |---|---|
 | **Requests** | Default landing page. Live audit log of every API call, with status, latency, and auth mode. |
 | **Memories** | Browse and search the memories your server has stored. |
-| **Entities** | Distinct `user_id` / `agent_id` / `run_id` values with memory counts and cascade-delete. |
+| **Entities** | The authenticated owner's distinct `agent_id` / `run_id` values with memory counts and owner-scoped deletion; public `user_id` entities are not exposed. |
 | **API Keys** | Issue per-user keys, label them, and revoke. |
 | **Configuration** | Runtime override for LLM and embedder. Changes persist to the app database and reapply on restart, layered over the values from your `.env`. |
 | **Settings** | Account and session controls. |

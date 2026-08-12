@@ -2,6 +2,7 @@ export const AUTH_ENDPOINTS = {
   SETUP_STATUS: "/auth/setup-status",
   REGISTER: "/auth/register",
   LOGIN: "/auth/login",
+  ACCEPT_INVITATION: "/auth/invitations/accept",
   REFRESH: "/auth/refresh",
   ME: "/auth/me",
   CHANGE_PASSWORD: "/auth/change-password",
@@ -23,6 +24,14 @@ export const API_KEY_ENDPOINTS = {
   BY_ID: (keyId: string) => `/api-keys/${keyId}`,
 } as const;
 
+export const USER_ENDPOINTS = {
+  BASE: "/admin/users",
+  INVITATIONS: "/admin/invitations",
+  INVITATION_BY_ID: (id: string) => `/admin/invitations/${id}`,
+  DISABLE: (id: string) => `/admin/users/${id}/disable`,
+  RESTORE: (id: string) => `/admin/users/${id}/restore`,
+} as const;
+
 export const REQUEST_ENDPOINTS = {
   BASE: "/requests",
 } as const;
@@ -31,4 +40,12 @@ export const ENTITY_ENDPOINTS = {
   BASE: "/entities",
   BY_ID: (type: string, id: string) =>
     `/entities/${type}/${encodeURIComponent(id)}`,
+} as const;
+
+export const CATEGORY_ENDPOINTS = {
+  BASE: "/categories",
+  BY_NAME: (name: string) => `/categories/${encodeURIComponent(name)}`,
+  JOBS: "/categories/jobs",
+  PREVIEW: "/categories/reclassify/preview",
+  EXECUTE: "/categories/reclassify",
 } as const;

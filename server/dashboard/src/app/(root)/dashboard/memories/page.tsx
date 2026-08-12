@@ -1,12 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { format } from "date-fns";
+import { CategoriesDisplay } from "@/components/ui/categories-display";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { DataTable } from "@/components/shared/data-table";
 import { TableSkeleton } from "@/components/shared/table-skeleton";
 import { EmptyState } from "@/components/self-hosted/empty-state";
@@ -22,20 +30,100 @@ import { UpgradeBanner } from "@/components/self-hosted/upgrade-banner";
 import { toast } from "@/components/ui/use-toast";
 import { getErrorMessage } from "@/lib/error-message";
 import { api } from "@/utils/api";
-import { MEMORY_ENDPOINTS } from "@/utils/api-endpoints";
+import { CATEGORY_ENDPOINTS, MEMORY_ENDPOINTS } from "@/utils/api-endpoints";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { Memory } from "@/types/api";
+import { CategoryCatalogResponse, Memory } from "@/types/api";
 
 const PAGE_SIZE = 20;
 // Keep in sync with ALL_MEMORIES_LIMIT in server/main.py.
 const MEMORY_FETCH_LIMIT = 1000;
+
+function sameCategories(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((name, index) => name === right[index])
+  );
+}
+
+function memoryCategories(memory: Memory): string[] {
+  return Array.isArray(memory.categories)
+    ? memory.categories.filter(
+        (category): category is string => typeof category === "string",
+      )
+    : [];
+}
+
+function memoryCategoryStatus(memory: Memory): Memory["category_status"] {
+  switch (memory.category_status) {
+    case "pending":
+    case "completed":
+    case "failed":
+    case "unclassified":
+      return memory.category_status;
+    default:
+      return "unclassified";
+  }
+}
+
+function CategoryStateBadge({ status }: { status: Memory["category_status"] }) {
+  if (status === "completed") return null;
+  if (status === "pending") return <Badge variant="secondary">Pending</Badge>;
+  if (status === "failed") return <Badge variant="destructive">Failed</Badge>;
+  return (
+    <Badge
+      className="border-yellow-500/60 text-yellow-700 dark:text-yellow-300"
+      variant="outline"
+    >
+      Unclassified
+    </Badge>
+  );
+}
+
+function MemoryCategories({
+  memory,
+  showAll = false,
+}: {
+  memory: Memory;
+  showAll?: boolean;
+}) {
+  const categories = memoryCategories(memory);
+  const status = memoryCategoryStatus(memory);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {categories.length > 0 ? (
+        <CategoriesDisplay
+          categories={categories}
+          showAllCategories={showAll}
+        />
+      ) : status === "completed" ? (
+        <span className="text-sm text-onSurface-default-tertiary">
+          No categories
+        </span>
+      ) : null}
+      <CategoryStateBadge status={status} />
+    </div>
+  );
+}
 
 export default function MemoriesPage() {
   const [userId, setUserId] = useState("");
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const [memoryToDelete, setMemoryToDelete] = useState<Memory | null>(null);
   const [page, setPage] = useState(0);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [appliedCategories, setAppliedCategories] = useState<string[]>([]);
+  const hasAppliedCategoryFilter = useRef(false);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+
+  const { data: categoryCatalog } = useApiQuery<CategoryCatalogResponse>(
+    async () => {
+      const response = await api.get<CategoryCatalogResponse>(
+        CATEGORY_ENDPOINTS.BASE,
+      );
+      return response.data;
+    },
+    { errorToast: "Failed to load category catalog" },
+  );
 
   const {
     data: memories = [],
@@ -43,15 +131,42 @@ export default function MemoriesPage() {
     refetch,
   } = useApiQuery<Memory[]>(
     async () => {
-      const params = userId.trim()
-        ? { user_id: userId.trim(), top_k: MEMORY_FETCH_LIMIT }
-        : { top_k: MEMORY_FETCH_LIMIT };
-      const res = await api.get(MEMORY_ENDPOINTS.BASE, { params });
+      const params = new URLSearchParams();
+      if (userId.trim()) params.append("user_id", userId.trim());
+      params.append("top_k", String(MEMORY_FETCH_LIMIT));
+      appliedCategories.forEach((name) => params.append("categories", name));
+      const res = await api.get(
+        `${MEMORY_ENDPOINTS.BASE}?${params.toString()}`,
+      );
       const raw = res.data?.results ?? res.data ?? [];
       return Array.isArray(raw) ? raw : [];
     },
     { errorToast: "Failed to load memories", initialData: [] },
   );
+
+  useEffect(() => {
+    if (!hasAppliedCategoryFilter.current) {
+      hasAppliedCategoryFilter.current = true;
+      return;
+    }
+    setPage(0);
+    void refetch();
+  }, [appliedCategories, refetch]);
+
+  const activeCategories = categoryCatalog?.active ?? [];
+
+  const toggleCategory = (name: string) => {
+    setSelectedCategories((current) =>
+      current.includes(name)
+        ? current.filter((category) => category !== name)
+        : [...current, name],
+    );
+  };
+
+  const applyCategoryFilter = () => {
+    if (sameCategories(selectedCategories, appliedCategories)) return;
+    setAppliedCategories(selectedCategories);
+  };
 
   const totalPages = Math.ceil(memories.length / PAGE_SIZE);
   const paginatedMemories = memories.slice(
@@ -94,6 +209,14 @@ export default function MemoriesPage() {
       render: (value: string) =>
         value ? format(new Date(value), "MMM d, yyyy") : "--",
     },
+    {
+      key: "categories" as keyof Memory,
+      label: "Categories",
+      width: 200,
+      render: (_value: Memory["categories"], row: Memory) => (
+        <MemoryCategories memory={row} />
+      ),
+    },
   ];
 
   return (
@@ -110,7 +233,7 @@ export default function MemoriesPage() {
         />
       )}
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <Input
           placeholder="Filter by User ID (optional)"
           value={userId}
@@ -123,10 +246,58 @@ export default function MemoriesPage() {
           }}
           className="w-64"
         />
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" type="button" variant="outline">
+              Categories ({selectedCategories.length})
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-72 space-y-3 p-3">
+            <div>
+              <p className="text-sm font-medium">Filter categories</p>
+              <p className="text-xs text-onSurface-default-tertiary">
+                Show memories matching any selected active category.
+              </p>
+            </div>
+            {activeCategories.length === 0 ? (
+              <p className="text-sm text-onSurface-default-tertiary">
+                No active categories are available.
+              </p>
+            ) : (
+              <div className="max-h-56 space-y-2 overflow-y-auto">
+                {activeCategories.map((category) => (
+                  <div className="flex items-center gap-2" key={category.name}>
+                    <Checkbox
+                      checked={selectedCategories.includes(category.name)}
+                      id={`memory-category-${category.name}`}
+                      onCheckedChange={() => toggleCategory(category.name)}
+                    />
+                    <Label
+                      className="cursor-pointer text-sm"
+                      htmlFor={`memory-category-${category.name}`}
+                    >
+                      {category.name}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                disabled={sameCategories(selectedCategories, appliedCategories)}
+                onClick={applyCategoryFilter}
+                size="sm"
+                type="button"
+              >
+                Apply filter
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {isLoading ? (
-        <TableSkeleton rows={5} columns={4} />
+        <TableSkeleton rows={5} columns={5} />
       ) : memories.length === 0 ? (
         <EmptyState
           title="No memories yet"
@@ -248,6 +419,12 @@ export default function MemoriesPage() {
                     </p>
                   </div>
                 )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-onSurface-default-tertiary">
+                  Categories
+                </Label>
+                <MemoryCategories memory={selectedMemory} showAll />
               </div>
               <Button
                 variant="outline"

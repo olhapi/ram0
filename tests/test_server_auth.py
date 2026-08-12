@@ -18,11 +18,18 @@ import pytest
 pytest.importorskip("fastapi", reason="fastapi not installed")
 
 from fastapi.testclient import TestClient
+from tests.server_app_test_support import fake_session_factory, install_server_runtime_doubles
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def _fake_session_factory():
+    """Keep auth-path tests deterministic without opening PostgreSQL."""
+    return fake_session_factory()
+
 
 @pytest.fixture
 def _mock_memory():
@@ -48,10 +55,19 @@ def _mock_memory():
 
 def _load_app(env_overrides: dict):
     """Reload server/main.py with the given environment and return the FastAPI app."""
-    import server.main as server_main
+    import auth
 
-    with patch.dict(os.environ, env_overrides, clear=False):
+    with patch.dict(
+        os.environ,
+        {"AUTH_DISABLED": "false", "JWT_SECRET": "test-jwt-secret", **env_overrides},
+        clear=False,
+    ):
+        importlib.reload(auth)
+        auth.SessionLocal = _fake_session_factory()
+        import server.main as server_main
+
         importlib.reload(server_main)
+        install_server_runtime_doubles(server_main, session_factory=auth.SessionLocal)
     return server_main.app
 
 
@@ -64,7 +80,7 @@ class TestAuthDisabled:
 
     @pytest.fixture(autouse=True)
     def _setup(self, _mock_memory):
-        self.app = _load_app({"ADMIN_API_KEY": ""})
+        self.app = _load_app({"ADMIN_API_KEY": "", "AUTH_DISABLED": "true"})
         self.client = TestClient(self.app)
         self.mock = _mock_memory
 
@@ -118,12 +134,12 @@ class TestAuthDisabled:
         resp = self.client.post("/configure", json={"version": "v1.1"})
         assert resp.status_code == 200
 
-    def test_supplying_key_still_works_when_auth_disabled(self):
-        """A client that sends X-API-Key should not be penalized when auth is off."""
+    def test_invalid_key_is_rejected_when_auth_disabled(self):
+        """Explicit invalid credentials remain invalid even when anonymous access is open."""
         resp = self.client.get(
             "/memories/mem-1", headers={"X-API-Key": "some-random-key"}
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
     @pytest.mark.parametrize(
         "method,path",
@@ -156,7 +172,7 @@ class TestAuthEnabled:
 
     @pytest.fixture(autouse=True)
     def _setup(self, _mock_memory):
-        self.app = _load_app({"ADMIN_API_KEY": self.API_KEY})
+        self.app = _load_app({"ADMIN_API_KEY": self.API_KEY, "AUTH_DISABLED": "false", "JWT_SECRET": "test-jwt-secret"})
         self.client = TestClient(self.app)
         self.mock = _mock_memory
 
@@ -184,7 +200,7 @@ class TestAuthEnabled:
 
     def test_401_includes_www_authenticate_header(self):
         resp = self.client.get("/memories/mem-1")
-        assert resp.headers.get("www-authenticate") == "ApiKey"
+        assert resp.headers.get("www-authenticate") == "Bearer"
 
     def test_near_miss_key_rejected(self):
         """Key that differs by one character should be rejected."""
@@ -312,7 +328,7 @@ class TestAuthenticatedCRUDFlow:
 
     @pytest.fixture(autouse=True)
     def _setup(self, _mock_memory):
-        self.app = _load_app({"ADMIN_API_KEY": self.API_KEY})
+        self.app = _load_app({"ADMIN_API_KEY": self.API_KEY, "AUTH_DISABLED": "false", "JWT_SECRET": "test-jwt-secret"})
         self.client = TestClient(self.app)
         self.mock = _mock_memory
 
@@ -338,7 +354,7 @@ class TestAuthenticatedCRUDFlow:
         # 3. Read all
         resp = self._authed("GET", "/memories", params={"user_id": "alice"})
         assert resp.status_code == 200
-        self.mock.get_all.assert_called_once_with(user_id="alice")
+        self.mock.get_all.assert_called_once_with(filters={"user_id": "alice"}, show_expired=False)
 
         # 4. Search
         resp = self._authed("POST", "/search", json={"query": "pizza", "user_id": "alice"})
@@ -427,11 +443,17 @@ class TestAuthEdgeCases:
 
     def test_key_env_var_not_present_at_all(self):
         """When the env var is completely absent, auth should be disabled."""
-        import server.main as server_main
+        import auth
         env = os.environ.copy()
         env.pop("ADMIN_API_KEY", None)
+        env["AUTH_DISABLED"] = "true"
         with patch.dict(os.environ, env, clear=True):
+            importlib.reload(auth)
+            auth.SessionLocal = _fake_session_factory()
+            import server.main as server_main
+
             importlib.reload(server_main)
+            install_server_runtime_doubles(server_main, session_factory=auth.SessionLocal)
         client = TestClient(server_main.app)
         resp = client.get("/memories/mem-1")
         assert resp.status_code != 401
@@ -444,7 +466,7 @@ class TestAuthEdgeCases:
         assert c1.get("/memories/mem-1").status_code == 401
 
         # Then: auth disabled
-        app2 = _load_app({"ADMIN_API_KEY": ""})
+        app2 = _load_app({"ADMIN_API_KEY": "", "AUTH_DISABLED": "true"})
         c2 = TestClient(app2)
         assert c2.get("/memories/mem-1").status_code != 401
 
@@ -482,13 +504,13 @@ class TestStartupLogging:
 
     def test_warning_when_auth_disabled(self, caplog):
         with caplog.at_level(logging.WARNING):
-            _load_app({"ADMIN_API_KEY": ""})
-        assert any("UNSECURED" in r.message for r in caplog.records)
+            _load_app({"ADMIN_API_KEY": "", "AUTH_DISABLED": "true"})
+        assert any("AUTH_DISABLED is enabled" in record.message for record in caplog.records)
 
-    def test_info_when_auth_enabled(self, caplog):
+    def test_auth_enabled_does_not_emit_the_disabled_warning(self, caplog):
         with caplog.at_level(logging.INFO):
             _load_app({"ADMIN_API_KEY": "a-long-enough-secret-key"})
-        assert any("authentication enabled" in r.message for r in caplog.records)
+        assert not any("AUTH_DISABLED is enabled" in record.message for record in caplog.records)
 
     def test_warning_when_key_too_short(self, caplog):
         with caplog.at_level(logging.WARNING):

@@ -1,18 +1,17 @@
 {
-  "name": "mem0-plugins",
+  "name": "ram0-plugins",
   "owner": {
-    "name": "Mem0",
-    "email": "support@mem0.ai"
+    "name": "Ram0"
   },
   "metadata": {
-    "description": "Official Mem0 plugins for Claude"
+    "description": "Self-hosted Ram0 plugins for Claude"
   },
   "plugins": [
     {
-      "name": "mem0",
-      "source": "./integrations/mem0-plugin",
-      "description": "Mem0 memory layer for AI applications. Add persistent memory, personalization, and semantic search to Claude workflows.",
-      "version": "0.2.14"
+      "name": "ram0",
+      "source": "./integrations/ram0-plugin",
+      "description": "Self-hosted Ram0 memory with account-derived bearer authentication.",
+      "version": "0.1.0"
     }
   ]
 }

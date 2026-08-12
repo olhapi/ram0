@@ -130,10 +130,13 @@ docker compose up -d mem0
 # Check service health
 cd server && make health
 
-# Confirm memories are accessible
-curl -s http://localhost:8888/memories?user_id=<your-user-id> \
+# Confirm the authenticated account's memories are accessible
+curl -s http://localhost:8888/memories \
   -H "X-API-Key: <your-api-key>"
 ```
+
+The API derives the canonical account UUID ownership boundary from the API key.
+Do not send a `user_id` query parameter; caller-selected owners are rejected.
 
 ## Rollback
 

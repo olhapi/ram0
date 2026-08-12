@@ -1,0 +1,20 @@
+Ram0
+Copyright 2026 Ram0 contributors
+
+Ram0 is an independent derivative work based on Mem0, originally developed by
+the Mem0 contributors and available at https://github.com/mem0ai/mem0.
+The fork was established from Mem0 v2.0.17 and contains modifications made by
+Ram0 contributors. The upstream and subsequent contributors retain copyright
+in their respective contributions.
+
+Ram0 is licensed under the Apache License, Version 2.0. A copy is distributed
+in the root LICENSE file. The Apache License does not grant permission to use
+the trade names, trademarks, service marks, or product names of contributors
+except for reasonable and customary descriptions of the work's origin.
+
+Ram0 is not affiliated with or endorsed by Mem0. References to Mem0 identify
+the upstream project or compatibility only.
+
+The dashboard redistributes third-party fonts. Their copyright notices,
+sources, and license texts are in server/dashboard/public/legal/fonts/ and are
+also included in the Ram0 dashboard container image.

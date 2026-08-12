@@ -138,6 +138,7 @@
                       "open-source/python-quickstart",
                       "open-source/node-quickstart",
                       "open-source/setup",
+                      "open-source/ram0-mcp",
                       "vibecoding"
                     ]
                   },
@@ -367,6 +368,7 @@
                     "group": "Coding Agents",
                     "icon": "terminal",
                     "pages": [
+                      "integrations/ram0-plugin",
                       "integrations/claude-code",
                       "integrations/cursor",
                       "integrations/codex",
@@ -1033,10 +1035,6 @@
     },
     {
       "source": "/features/graph-memory",
-      "destination": "/platform/features/graph-memory"
-    },
-    {
-      "source": "/open-source/features/graph-memory",
       "destination": "/platform/features/graph-memory"
     },
     {
