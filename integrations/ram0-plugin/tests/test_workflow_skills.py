@@ -168,6 +168,12 @@ def test_dream_assigns_each_source_to_one_confirmed_replacement_proposal():
         "cluster transitive duplicate matches",
         "deduplicate proposal membership",
         "before preview or apply",
+        "single global proposal-membership set",
+        "across both duplicate clusters and resolved contradictions",
+        "shares any source with an accepted duplicate cluster",
+        "do not create a second proposal",
+        "choose exactly one proposal or skip",
+        "globally unique across final confirmed proposals",
     ):
         assert marker in source
 

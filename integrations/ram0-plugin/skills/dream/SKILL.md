@@ -32,18 +32,23 @@ installed server derives the account scope.
    when no server category and no safe type metadata exist, low confidence
    when numeric metadata confidence is below `0.3`, and stale candidates only
    when valid timestamps are older than 180 days.
-2. Before preview or apply, cluster transitive duplicate matches and
-   deduplicate proposal membership. Each source UUID must appear in exactly
-   one confirmed replacement proposal; if clusters overlap, merge their
-   membership before drafting the proposal. Show a complete proposal before
-   any write. For every duplicate cluster, draft a concise replacement and
-   list the exact source UUIDs. For every possible contradiction, collect an
-   explicit choice: **A**, **B**, or **skip**; do not resolve it by inference.
-   An **A** or **B** choice is a confirmed replacement proposal: draft its
-   replacement content from the chosen winner and list both exact source UUIDs.
-   Skip leaves both untouched. Keep stale candidates and low-confidence entries
-   review-only. State the scanned count, limit 100, every proposed replacement,
-   every source ID, and every no-change item.
+2. Before preview or apply, build a single global proposal-membership set across
+   both duplicate clusters and resolved contradictions. Cluster transitive
+   duplicate matches and deduplicate proposal membership. Each source UUID must
+   appear in exactly one confirmed replacement proposal; if duplicate clusters
+   overlap, merge their membership before drafting the proposal. If a resolved
+   contradiction shares any source with an accepted duplicate cluster, do not
+   create a second proposal. Surface that overlap for explicit user resolution:
+   choose exactly one proposal or skip. Require every source UUID to be globally
+   unique across final confirmed proposals before final confirmation or apply.
+   Show a complete proposal before any write. For every duplicate cluster, draft
+   a concise replacement and list the exact source UUIDs. For every possible
+   contradiction, collect an explicit choice: **A**, **B**, or **skip**; do not
+   resolve it by inference. An **A** or **B** choice is a confirmed replacement
+   proposal: draft its replacement content from the chosen winner and list both
+   exact source UUIDs. Skip leaves both untouched. Keep stale candidates and
+   low-confidence entries review-only. State the scanned count, limit 100,
+   every proposed replacement, every source ID, and every no-change item.
 3. Ask for final confirmation of the complete proposal. Never automatically prune
    memories; there is no auto-prune or auto mode. Do not act on
    partial approval or a selection changed after the proposal.
