@@ -102,7 +102,7 @@ def test_supported_client_manifests_launch_the_same_config_aware_stdio_adapter()
     for field in ("hooks", "mcpServers"):
         assert (ROOT / cursor_plugin[field]).is_file()
 
-    definitions = [claude_mcp["mcpServers"]["ram0"], codex_mcp["ram0"], cursor_mcp["mcpServers"]["ram0"]]
+    definitions = [claude_mcp["mcpServers"]["ram0"], cursor_mcp["mcpServers"]["ram0"]]
     for definition in definitions:
         assert definition["command"] == "python3"
         assert definition["args"][0].endswith("/scripts/mcp_stdio_adapter.py")
@@ -111,6 +111,11 @@ def test_supported_client_manifests_launch_the_same_config_aware_stdio_adapter()
         assert "RAM0_API_KEY" not in encoded
         assert "Authorization" not in encoded
         assert '"url"' not in encoded
+
+    assert codex_mcp["ram0"] == {
+        "command": "ram0",
+        "args": ["mcp"],
+    }
 
 
 def _run_cursor(name: str, payload: dict, *, ram0_server, tmp_path) -> dict:
@@ -230,8 +235,8 @@ def test_real_codex_install_lists_bundled_ram0_mcp_from_isolated_home(tmp_path):
     servers = {item["name"]: item for item in json.loads(listing.stdout)}
     transport = servers["ram0"]["transport"]
     assert transport["type"] == "stdio"
-    assert transport["command"] == "python3"
-    assert transport["args"] == ["${PLUGIN_ROOT}/scripts/mcp_stdio_adapter.py"]
+    assert transport["command"] == "ram0"
+    assert transport["args"] == ["mcp"]
     assert transport["env"] is None
     assert "${PLUGIN_ROOT}/scripts/" in (installed_path / "hooks" / "codex-hooks.json").read_text()
     assert (installed_path / "skills" / "ram0-memory" / "SKILL.md").is_file()

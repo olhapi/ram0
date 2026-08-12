@@ -1,6 +1,6 @@
 {
   "ram0": {
-    "command": "python3",
-    "args": ["${PLUGIN_ROOT}/scripts/mcp_stdio_adapter.py"]
+    "command": "ram0",
+    "args": ["mcp"]
   }
 }

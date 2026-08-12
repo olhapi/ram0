@@ -113,6 +113,25 @@ def test_setup_and_display_never_echo_the_key(monkeypatch, tmp_path):
     assert json.loads((tmp_path / ".config/ram0/config.json").read_text())["api_key"] == "secret-value"
 
 
+def test_mcp_command_runs_stdio_adapter_with_persistent_configuration(monkeypatch, tmp_path):
+    """Breaks if Codex needs plugin paths or exported credentials to launch Ram0 MCP."""
+    stdin, stdout, stderr = io.StringIO(), io.StringIO(), io.StringIO()
+    calls = []
+
+    monkeypatch.setattr(
+        "ram0_cli.run_stdio",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or 17,
+    )
+
+    assert main(["mcp"], home=tmp_path, stdin=stdin, stdout=stdout, stderr=stderr) == 17
+    assert calls == [
+        (
+            (stdin, stdout, stderr),
+            {"environment": None, "home": tmp_path},
+        )
+    ]
+
+
 def test_field_updates_preserve_the_other_value(tmp_path):
     """Breaks if rotation or endpoint updates accidentally destroy the other credential field."""
     write_config("https://one.example", "one-key", home=tmp_path)

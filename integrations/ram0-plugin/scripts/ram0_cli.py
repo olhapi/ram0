@@ -15,6 +15,7 @@ from typing import TextIO
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from mcp_stdio_adapter import run_stdio
 from ram0_config import RAM0_USER_AGENT, Ram0ConfigError, config_path, load_config, update_config, write_config
 
 
@@ -28,6 +29,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     setup = commands.add_parser("setup", help="store the Ram0 endpoint and API key")
     setup.add_argument("--url")
+    commands.add_parser("mcp", help="serve Ram0 MCP over stdio using persistent configuration")
     config = commands.add_parser("config", help="inspect or update persistent configuration")
     config_commands = config.add_subparsers(dest="config_command", required=True)
     config_commands.add_parser("show")
@@ -80,6 +82,9 @@ def main(
     output = sys.stdout if stdout is None else stdout
     errors = sys.stderr if stderr is None else stderr
     args = _parser().parse_args(argv)
+    if args.command == "mcp":
+        source_input = sys.stdin if stdin is None else stdin
+        return run_stdio(source_input, output, errors, environment=environment, home=home)
     try:
         if args.command == "setup":
             url = args.url or _prompt("Ram0 API URL: ", stdin=stdin)
