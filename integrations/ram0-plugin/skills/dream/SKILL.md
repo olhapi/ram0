@@ -37,11 +37,12 @@ installed server derives the account scope.
    duplicate matches and deduplicate proposal membership. Each source UUID must
    appear in exactly one confirmed replacement proposal; if duplicate clusters
    overlap, merge their membership before drafting the proposal. If a resolved
-   contradiction shares any source with an accepted duplicate cluster, do not
+   contradiction shares any source with any duplicate-cluster proposal, do not
    create a second proposal. Surface that overlap for explicit user resolution:
-   choose exactly one proposal or skip. Require every source UUID to be globally
+   choose exactly one proposal or skip. Resolve every cross-kind overlap before
+   showing the complete proposal. Require every source UUID to be globally
    unique across final confirmed proposals before final confirmation or apply.
-   Show a complete proposal before any write. For every duplicate cluster, draft
+   Show the complete proposal before any write. For every duplicate cluster, draft
    a concise replacement and list the exact source UUIDs. For every possible
    contradiction, collect an explicit choice: **A**, **B**, or **skip**; do not
    resolve it by inference. An **A** or **B** choice is a confirmed replacement

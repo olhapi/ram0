@@ -170,12 +170,16 @@ def test_dream_assigns_each_source_to_one_confirmed_replacement_proposal():
         "before preview or apply",
         "single global proposal-membership set",
         "across both duplicate clusters and resolved contradictions",
-        "shares any source with an accepted duplicate cluster",
+        "shares any source with any duplicate-cluster proposal",
         "do not create a second proposal",
         "choose exactly one proposal or skip",
         "globally unique across final confirmed proposals",
+        "resolve every cross-kind overlap before showing the complete proposal",
     ):
         assert marker in source
+    overlap_resolution = source.index("resolve every cross-kind overlap")
+    assert overlap_resolution < source.index("show the complete proposal")
+    assert overlap_resolution < source.index("final confirmation")
 
 
 def test_stats_labels_bounded_scan_and_latency():
