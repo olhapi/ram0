@@ -70,7 +70,7 @@ def test_export_is_bounded_complete_deterministic_and_preserves_modes(tmp_path):
     assert manifest["source_commit"] == "a" * 40
     assert manifest["plugin"] == "ram0"
     assert manifest["marketplace"] == "ram0-plugins"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.1.1"
     assert list(manifest["files"]) == sorted(manifest["files"])
     assert "source-manifest.json" not in manifest["files"]
 

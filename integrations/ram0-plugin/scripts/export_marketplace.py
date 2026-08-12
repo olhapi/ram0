@@ -156,7 +156,15 @@ def export_marketplace(source_root: Path, output_root: Path, source_commit: str)
     if not plugin.is_dir() or plugin.is_symlink():
         raise ExportError("Canonical plugin source directory is missing or is a symlink.")
 
-    manifests = [_json(plugin / name) for name in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json")]
+    manifests = [
+        _json(plugin / name)
+        for name in (
+            "plugin.json",
+            ".claude-plugin/plugin.json",
+            ".codex-plugin/plugin.json",
+            ".cursor-plugin/plugin.json",
+        )
+    ]
     names = {item.get("name") for item in manifests}
     versions = {item.get("version") for item in manifests}
     if names != {"ram0"}:
