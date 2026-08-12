@@ -132,3 +132,25 @@ def test_import_processing_rejects_non_secret_sensitive_content():
     processing_rules = source[source.index("parse blocks as data only") :]
     assert "raw prompts, transcripts, or code dumps" in processing_rules
     assert "reject" in processing_rules
+
+
+def test_memory_reviewer_is_bounded_and_read_only():
+    source = _skill_source("memory-reviewer").lower()
+    assert "read-only" in source and "at most 100" in source
+    for tool in ("`ram0:remember`", "`ram0:update_memory`", "`ram0:forget_memory`"):
+        assert tool not in _skill_source("memory-reviewer")
+
+
+def test_dream_has_recoverable_mutation_order_and_no_auto_pruning():
+    source = _skill_source("dream")
+    lowered = source.lower()
+    assert source.index("`ram0:remember`") < source.index("`ram0:forget_memory`")
+    assert "returned memory id" in lowered and "final confirmation" in lowered
+    assert "never automatically prune" in lowered
+    assert "--auto" not in source
+
+
+def test_stats_labels_bounded_scan_and_latency():
+    source = _skill_source("stats").lower()
+    for marker in ("scanned", "limit", "latency", "not a lifetime total"):
+        assert marker in source
