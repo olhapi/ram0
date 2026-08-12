@@ -18,6 +18,12 @@ ALLOWED_TOOLS = frozenset({
     "remember", "search_memories", "list_memories",
     "get_memory", "update_memory", "forget_memory",
 })
+FORBIDDEN_OWNERSHIP_FIELDS = frozenset({
+    "user_id", "app_id", "project_id", "agent_id", "run_id",
+})
+PRIVACY_PROHIBITIONS = frozenset({
+    "credentials", "raw prompts", "transcripts", "code dumps",
+})
 
 
 def _skill_source(name: str) -> str:
@@ -37,8 +43,18 @@ def test_expected_workflow_skills_have_valid_frontmatter_and_license():
 @pytest.mark.parametrize("name", sorted(EXPECTED_WORKFLOW_SKILLS))
 def test_workflow_skill_uses_only_account_scoped_ram0_contract(name):
     source = _skill_source(name)
+    normalized_source = source.lower()
     tools = set(re.findall(r"`ram0:([a-z_]+)`", source))
     assert tools <= ALLOWED_TOOLS
-    for forbidden in ("user_id", "app_id", "project_id", "mcp.mem0.ai", "api.mem0.ai"):
+    for forbidden in (*FORBIDDEN_OWNERSHIP_FIELDS, "mcp.mem0.ai", "api.mem0.ai"):
         assert forbidden not in source
-    assert "untrusted" in source.lower()
+    assert "untrusted" in normalized_source
+    for prohibited_content in PRIVACY_PROHIBITIONS:
+        assert re.search(
+            rf"\b(?:do not|never|must not)\b[^.\n]*\b{re.escape(prohibited_content)}\b",
+            normalized_source,
+        )
+
+    # Workflow-specific behavior is enforced by its planned task because
+    # search-before-write, confirmation, read limits, and dream ordering do
+    # not apply uniformly to every workflow skill.
