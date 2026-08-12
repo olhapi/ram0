@@ -1,5 +1,7 @@
 """Installed lifecycle contract tests for Claude, Codex, and Cursor."""
 
+# Modified for Ram0; see NOTICE and repository history.
+
 from __future__ import annotations
 
 import json
@@ -11,6 +13,7 @@ import subprocess
 import pytest
 
 from memory_capture import AUTOMATIC_CONTEXT_VERSION, _automatic_context_proof
+from test_workflow_skills import EXPECTED_WORKFLOW_SKILLS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -239,5 +242,8 @@ def test_real_codex_install_lists_bundled_ram0_mcp_from_isolated_home(tmp_path):
     assert transport["args"] == ["mcp"]
     assert transport["env"] is None
     assert "${PLUGIN_ROOT}/scripts/" in (installed_path / "hooks" / "codex-hooks.json").read_text()
-    assert (installed_path / "skills" / "ram0-memory" / "SKILL.md").is_file()
+    installed_skills = {
+        path.parent.name for path in (installed_path / "skills").glob("*/SKILL.md")
+    }
+    assert installed_skills == {"ram0-memory", *EXPECTED_WORKFLOW_SKILLS}
     assert "RAM0_API_KEY" not in (codex_home / "config.toml").read_text()
