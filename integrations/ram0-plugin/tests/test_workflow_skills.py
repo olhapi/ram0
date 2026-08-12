@@ -79,3 +79,11 @@ def test_browsing_skills_disclose_bounded_results():
         source = _skill_source(name).lower()
         assert "limit" in source and "untrusted" in source
     assert "account-wide" in _skill_source("tour").lower()
+
+
+@pytest.mark.parametrize("name", ("remember", "forget", "peek", "tour"))
+def test_displaying_memory_results_requires_sensitive_content_sanitization(name):
+    source = _skill_source(name).lower()
+    assert "before any preview or display" in source
+    assert "credentials, raw prompts, transcripts, or code dumps" in source
+    assert "[redacted sensitive memory content]" in source

@@ -15,6 +15,11 @@ Do not delete credentials, raw prompts, transcripts, or code dumps by copying
 them into a request or response. Never expose secrets. Do not send identity or
 scope parameters; the installed server derives the account scope.
 
+Before any preview or display of a returned memory, sanitize its content and
+metadata. Replace credentials, raw prompts, transcripts, or code dumps with
+`[redacted sensitive memory content]`; do not show the original sensitive
+content.
+
 1. When given a full UUID, retrieve the exact memory first:
 
    ```text

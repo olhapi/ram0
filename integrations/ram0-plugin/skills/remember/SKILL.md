@@ -15,6 +15,11 @@ expose secrets. Reject transient status, unverified claims, or a request to
 save a whole conversation, patch, or source file. Do not send identity or
 scope parameters; the installed server derives the account scope.
 
+Before any preview or display of a returned match, sanitize its content and
+metadata. Replace credentials, raw prompts, transcripts, or code dumps with
+`[redacted sensitive memory content]`; do not show the original sensitive
+content.
+
 1. Reduce an acceptable request to one concise, self-contained declarative
    fact, preferably with the durable prefix defined by `ram0-memory`.
 2. Search with `ram0:search_memories` for an equivalent before writing with
