@@ -75,7 +75,7 @@ def test_publish_refuses_stale_remote_unexpected_files_and_unchanged_source(tmp_
     _git(destination, "push", "-u", "origin", "main")
 
     other = tmp_path / "other"
-    subprocess.run(["git", "clone", str(bare), str(other)], check=True, capture_output=True)
+    subprocess.run(["git", "clone", "--branch", "main", str(bare), str(other)], check=True, capture_output=True)
     (other / "remote-change").write_text("new\n")
     _git(other, "add", ".")
     _commit(other, "remote change")
