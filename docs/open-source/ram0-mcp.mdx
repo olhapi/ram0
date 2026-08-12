@@ -4,11 +4,25 @@ description: "Connect an MCP client to protected, account-scoped Ram0 memory."
 icon: "plug"
 ---
 
+<!-- Modified for Ram0; see NOTICE and repository history. -->
+
 Ram0 serves a Bearer-authenticated Streamable HTTP endpoint at `/mcp`. It exposes six account-scoped tools and is separate from the hosted Mem0 Platform MCP.
 
 ## Choose a connection
 
 Direct MCP is tools-only. The [full automation plugin](/integrations/ram0-plugin) registers the same tools and adds lifecycle retrieval and bounded durable capture. Skills-only adds search-before-write guidance. Do not register direct MCP and the full plugin together.
+
+## Workflow skills
+
+- Write: `remember`
+- Browse: `peek`, `tour`
+- Delete: `forget` (confirmation required)
+- Portable data: `export`, `import` (bounded scan and reviewed batch)
+- Quality: `memory-reviewer` (read-only), `dream` (confirmed consolidation), `stats`
+- Setup: `health`, `onboard`
+- Policy: `ram0-memory`
+
+Plugin installation includes all skills automatically. The `npx skills add ... --skill ram0-memory` command installs only the standalone policy skill.
 
 ## Permanent setup
 

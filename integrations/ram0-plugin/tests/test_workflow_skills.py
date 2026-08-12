@@ -30,6 +30,17 @@ def _skill_source(name: str) -> str:
     return (ROOT / "skills" / name / "SKILL.md").read_text()
 
 
+@pytest.mark.parametrize("path", [
+    ROOT / "README.md",
+    ROOT.parents[1] / "docs" / "integrations" / "ram0-plugin.mdx",
+    ROOT.parents[1] / "docs" / "open-source" / "ram0-mcp.mdx",
+])
+def test_public_docs_list_every_workflow_skill(path):
+    source = path.read_text()
+    for name in EXPECTED_WORKFLOW_SKILLS:
+        assert f"`{name}`" in source
+
+
 def test_expected_workflow_skills_have_valid_frontmatter_and_license():
     for name in EXPECTED_WORKFLOW_SKILLS:
         source = _skill_source(name)

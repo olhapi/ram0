@@ -1,3 +1,5 @@
+<!-- Modified for Ram0; see NOTICE and repository history. -->
+
 # Ram0 agent plugin
 
 The Ram0 plugin gives Claude Code, Codex, Cursor, and OpenCode six account-scoped MCP tools plus automatic retrieval and bounded durable-memory capture. Direct MCP is tools-only; skills-only adds guidance. Choose one MCP registration per client.
@@ -44,6 +46,18 @@ opencode plugin "file://$PWD" --global
 ```
 
 Restart the client after installation. The full plugin already registers MCP; remove any same-named direct remote MCP entry.
+
+## Workflow skills
+
+- Write: `remember`
+- Browse: `peek`, `tour`
+- Delete: `forget` (confirmation required)
+- Portable data: `export`, `import` (bounded scan and reviewed batch)
+- Quality: `memory-reviewer` (read-only), `dream` (confirmed consolidation), `stats`
+- Setup: `health`, `onboard`
+- Policy: `ram0-memory`
+
+Plugin installation includes all skills automatically. The `npx skills add ... --skill ram0-memory` command installs only the standalone policy skill.
 
 ## Direct MCP and skills-only
 
