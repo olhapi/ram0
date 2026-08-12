@@ -195,6 +195,16 @@ def test_health_is_read_only_by_default_and_cleans_exact_probe():
     assert "never print" in source
 
 
+def test_health_probe_searches_exact_marker_before_write_and_exact_id_cleanup():
+    source = _skill_source("health")
+    probe = re.sub(r"\s+", " ", source[source.index("Offer a write/delete probe") :])
+    search = '`ram0:search_memories` with `{"query":"<exact marker>","limit":1}`'
+    remember = '`ram0:remember` with `{"content":"<exact marker>","metadata":{"purpose":"ram0-health-probe"}}`'
+    forget = '`ram0:forget_memory` with `{"memory_id":"<returned exact ID>"}`'
+    assert probe.index(search) < probe.index(remember) < probe.index(forget)
+    assert "if the exact marker is already present, stop without writing" in probe.lower()
+
+
 def test_onboard_uses_permanent_setup_without_exports():
     source = _skill_source("onboard")
     lowered = source.lower()
@@ -202,3 +212,14 @@ def test_onboard_uses_permanent_setup_without_exports():
     assert "direct mcp" in lowered and "full automation plugin" in lowered
     assert "export RAM0_API" not in source
     assert "shell profile" not in lowered
+
+
+def test_onboard_finishes_with_a_concrete_bounded_read_only_search():
+    source = _skill_source("onboard")
+    normalized = re.sub(r"\s+", " ", source)
+    final_search = '`ram0:search_memories` with `{"query":"Ram0 onboarding final read-only check","limit":1}`'
+    assert final_search in normalized
+    assert normalized.index(final_search) < normalized.index(
+        "sanitize all displayed memory output", normalized.index(final_search)
+    )
+    assert normalized.index(final_search) < normalized.index("Run ram0:tour")

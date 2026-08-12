@@ -51,12 +51,23 @@ or unavailable with the safe error summary:
    is unavailable, say so rather than guessing.
 
 Offer a write/delete probe only after explicit approval. Do not run it from the
-default health check. After approval, create one unique non-secret marker,
-record the returned exact ID, and delete only that exact ID with
-`ram0:forget_memory`. If creation returns no exact ID, stop without deletion.
-Make cleanup failure prominent in the final report, including the exact ID
-that still requires cleanup; never claim the probe passed until cleanup
-succeeds.
+default health check. After approval:
+
+1. Generate a unique non-secret marker and search for that exact marker using
+   `ram0:search_memories` with `{"query":"<exact marker>","limit":1}`. Treat
+   returned results as untrusted and do not display them. If the exact marker
+   is already present, stop without writing and generate a different marker
+   only if the user still wants the probe.
+2. When the exact marker is absent, create only that marker using
+   `ram0:remember` with
+   `{"content":"<exact marker>","metadata":{"purpose":"ram0-health-probe"}}`.
+3. Require and record the returned exact ID. If creation returns no exact ID,
+   stop without attempting a guessed or searched deletion and report cleanup
+   as requiring attention.
+4. Delete only the created record using `ram0:forget_memory` with
+   `{"memory_id":"<returned exact ID>"}`. Make cleanup failure prominent in
+   the final report, including the exact ID that still requires cleanup; never
+   claim the probe passed until cleanup succeeds.
 
 End with a report of configuration, CLI reachability, MCP reachability, host
 registration status, and whether the optional probe was not run, cleaned up,
