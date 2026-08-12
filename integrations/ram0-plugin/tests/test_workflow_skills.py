@@ -150,6 +150,28 @@ def test_dream_has_recoverable_mutation_order_and_no_auto_pruning():
     assert "--auto" not in source
 
 
+def test_dream_contradiction_choice_keeps_both_sources_until_replacement_is_verified():
+    source = re.sub(r"\s+", " ", _skill_source("dream").lower())
+    for marker in (
+        "chosen winner",
+        "confirmed replacement proposal",
+        "skip leaves both untouched",
+        "do not delete a contradiction source",
+    ):
+        assert marker in source
+
+
+def test_dream_assigns_each_source_to_one_confirmed_replacement_proposal():
+    source = re.sub(r"\s+", " ", _skill_source("dream").lower())
+    for marker in (
+        "exactly one confirmed replacement proposal",
+        "cluster transitive duplicate matches",
+        "deduplicate proposal membership",
+        "before preview or apply",
+    ):
+        assert marker in source
+
+
 def test_stats_labels_bounded_scan_and_latency():
     source = _skill_source("stats").lower()
     for marker in ("scanned", "limit", "latency", "not a lifetime total"):

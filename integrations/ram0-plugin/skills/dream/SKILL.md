@@ -32,12 +32,18 @@ installed server derives the account scope.
    when no server category and no safe type metadata exist, low confidence
    when numeric metadata confidence is below `0.3`, and stale candidates only
    when valid timestamps are older than 180 days.
-2. Show a complete proposal before any write. For every duplicate, draft a
-   concise replacement and list the exact source UUIDs. For every possible
-   contradiction, collect an explicit choice: **A**, **B**, or **skip**; do
-   not resolve it by inference. Keep stale candidates and low-confidence
-   entries review-only. State the scanned count, limit 100, every proposed
-   replacement, every source ID, and every no-change item.
+2. Before preview or apply, cluster transitive duplicate matches and
+   deduplicate proposal membership. Each source UUID must appear in exactly
+   one confirmed replacement proposal; if clusters overlap, merge their
+   membership before drafting the proposal. Show a complete proposal before
+   any write. For every duplicate cluster, draft a concise replacement and
+   list the exact source UUIDs. For every possible contradiction, collect an
+   explicit choice: **A**, **B**, or **skip**; do not resolve it by inference.
+   An **A** or **B** choice is a confirmed replacement proposal: draft its
+   replacement content from the chosen winner and list both exact source UUIDs.
+   Skip leaves both untouched. Keep stale candidates and low-confidence entries
+   review-only. State the scanned count, limit 100, every proposed replacement,
+   every source ID, and every no-change item.
 3. Ask for final confirmation of the complete proposal. Never automatically prune
    memories; there is no auto-prune or auto mode. Do not act on
    partial approval or a selection changed after the proposal.
@@ -57,8 +63,11 @@ installed server derives the account scope.
    ```
 
    If creation fails or no returned memory ID is present, do not delete any
-   source for that replacement. If a source deletion fails, retain its source
-   ID and continue only with independently approved replacements.
+   source for that replacement. Do not delete a contradiction source unless its
+   confirmed replacement returned an ID; in particular, never delete the
+   contradiction loser without that verified replacement. If a source deletion
+   fails, retain its source ID and continue only with independently approved
+   replacements.
 5. Report each source ID and replacement ID, including partial failures and
    undeleted sources. Do not report an unattempted or failed operation as
    successful.
