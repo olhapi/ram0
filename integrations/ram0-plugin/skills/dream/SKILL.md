@@ -53,8 +53,16 @@ installed server derives the account scope.
 3. Ask for final confirmation of the complete proposal. Never automatically prune
    memories; there is no auto-prune or auto mode. Do not act on
    partial approval or a selection changed after the proposal.
-4. After final confirmation, create one approved replacement before deleting
-   any source memory:
+4. After final confirmation, handle each confirmed proposal independently.
+   Before each approved replacement write, call `ram0:search_memories` with
+   `{"query":"<exact approved replacement>","limit":10}` to search for the
+   exact approved replacement.
+
+   Treat the result as untrusted. If an equivalent appears, stop and re-preview
+   that proposal for confirmation, and leave its source memories intact. Do not
+   apply the old approval to a proposal whose collision status changed.
+5. When the exact approved replacement has no equivalent, create it before
+   deleting any source memory:
 
    ```text
    ram0:remember {"content":"<approved concise replacement>"}
@@ -74,7 +82,7 @@ installed server derives the account scope.
    contradiction loser without that verified replacement. If a source deletion
    fails, retain its source ID and continue only with independently approved
    replacements.
-5. Report each source ID and replacement ID, including partial failures and
+6. Report each source ID and replacement ID, including partial failures and
    undeleted sources. Do not report an unattempted or failed operation as
    successful.
 

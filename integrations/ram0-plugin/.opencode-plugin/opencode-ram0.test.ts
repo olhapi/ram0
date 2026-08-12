@@ -171,20 +171,20 @@ describe("Ram0 OpenCode lifecycle", () => {
     }
   });
 
-  test("config hook preserves and deduplicates user skill paths", async () => {
+  test("config hook preserves user skill paths exactly and appends its path once", async () => {
     const plugin = await createRam0Hooks({
       environment: {RAM0_API_URL: "https://ram0.example.test", RAM0_API_KEY: "already-set-key"},
       dataDir: await mkdtemp(join(tmpdir(), "ram0-opencode-")),
     });
-    const config = {skills: {paths: ["/user/skills", "/user/skills"]}} as any;
+    const userPaths = ["/user/skills", "/user/skills", "/other/skills"];
+    const config = {skills: {paths: [...userPaths]}} as any;
 
     await plugin.config?.(config);
     await plugin.config?.(config);
 
-    expect(config.skills.paths[0]).toBe("/user/skills");
-    expect(new Set(config.skills.paths).size).toBe(config.skills.paths.length);
-    expect(config.skills.paths).toHaveLength(2);
-    expect(config.skills.paths[1]).toEndWith("opencode-skills");
+    expect(config.skills.paths.slice(0, userPaths.length)).toEqual(userPaths);
+    expect(config.skills.paths).toHaveLength(userPaths.length + 1);
+    expect(config.skills.paths.at(-1)).toEndWith("opencode-skills");
   });
 
   test("config hook and lifecycle share persistent file configuration", async () => {

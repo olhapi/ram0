@@ -389,9 +389,10 @@ export async function createRam0Hooks(options: RuntimeOptions): Promise<Hooks> {
       if (skillsDirectory) {
         const skillAwareConfig = config as typeof config & {skills?: {paths?: string[]}};
         skillAwareConfig.skills ??= {};
-        skillAwareConfig.skills.paths = [
-          ...new Set([...(skillAwareConfig.skills.paths ?? []), skillsDirectory]),
-        ];
+        const paths = skillAwareConfig.skills.paths ?? [];
+        if (!paths.includes(skillsDirectory)) {
+          skillAwareConfig.skills.paths = [...paths, skillsDirectory];
+        }
       }
       if (!key) return;
       config.mcp = {

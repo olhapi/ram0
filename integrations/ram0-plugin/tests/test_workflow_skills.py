@@ -165,6 +165,25 @@ def test_dream_has_recoverable_mutation_order_and_no_auto_pruning():
     assert "--auto" not in source
 
 
+def test_dream_rechecks_each_confirmed_replacement_before_writing():
+    source = re.sub(r"\s+", " ", _skill_source("dream"))
+    apply_steps = source[source.index("4. After final confirmation") :]
+    search = re.search(
+        r'`ram0:search_memories` with `\{"query":"<exact approved replacement>","limit":(\d+)\}`',
+        apply_steps,
+    )
+    assert search is not None
+    assert int(search.group(1)) <= 100
+    assert search.start() < apply_steps.index("`ram0:remember`")
+    for marker in (
+        "Before each approved replacement write",
+        "equivalent appears",
+        "stop and re-preview that proposal",
+        "leave its source memories intact",
+    ):
+        assert marker in apply_steps
+
+
 def test_dream_contradiction_choice_keeps_both_sources_until_replacement_is_verified():
     source = re.sub(r"\s+", " ", _skill_source("dream").lower())
     for marker in (
