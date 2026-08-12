@@ -32,7 +32,29 @@ PLUGIN_FILES = (
     "plugin.json",
     "requirements.txt",
 )
-PLUGIN_TREES = ("bin", "hooks", "scripts", "skills")
+PLUGIN_TREES = ("bin", "hooks", "skills")
+SCRIPT_FILES = (
+    "bootstrap_cli.py",
+    "ensure_deps.sh",
+    "install_cli.py",
+    "mcp_stdio_adapter.py",
+    "memory_capture.py",
+    "on_bash_output.sh",
+    "on_bash_output_cursor.sh",
+    "on_pre_compact.py",
+    "on_pre_compact_cursor.sh",
+    "on_session_start.sh",
+    "on_session_start_cursor.sh",
+    "on_stop.sh",
+    "on_stop_cursor.sh",
+    "on_user_prompt.sh",
+    "on_user_prompt_cursor.sh",
+    "ram0_cli.py",
+    "ram0_client.py",
+    "ram0_config.py",
+    "ram0_settings.py",
+    "setup_coding_categories.py",
+)
 EXCLUDED_SUFFIXES = (".pyc", ".db", ".sqlite", ".sqlite3")
 SECRET_PATTERNS = (
     re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
@@ -146,6 +168,8 @@ def export_marketplace(source_root: Path, output_root: Path, source_commit: str)
     destination = output_root / "plugins/ram0"
     for relative in PLUGIN_FILES:
         _copy(plugin / relative, destination / relative, plugin)
+    for name in SCRIPT_FILES:
+        _copy(plugin / "scripts" / name, destination / "scripts" / name, plugin)
     for tree in PLUGIN_TREES:
         for source in _tree_files(plugin, tree):
             _copy(source, destination / source.relative_to(plugin), plugin)

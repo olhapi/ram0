@@ -61,6 +61,8 @@ def test_export_is_bounded_complete_deterministic_and_preserves_modes(tmp_path):
     forbidden_parts = {".git", "node_modules", "__pycache__", "tests", "server"}
     assert not any(forbidden_parts.intersection(Path(path).parts) for path in files)
     assert not any(path.endswith((".db", ".sqlite", ".pyc")) or ".env" in path for path in files)
+    assert "plugins/ram0/scripts/export_marketplace.py" not in files
+    assert "plugins/ram0/scripts/publish_marketplace.py" not in files
     assert os.stat(first / "plugins/ram0/bin/ram0").st_mode & 0o111
     assert os.stat(first / "plugins/ram0/scripts/on_session_start.sh").st_mode & 0o111
 
