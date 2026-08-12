@@ -37,8 +37,12 @@ def _skill_source(name: str) -> str:
 ])
 def test_public_docs_list_every_workflow_skill(path):
     source = path.read_text()
-    for name in EXPECTED_WORKFLOW_SKILLS:
+    for name in (*EXPECTED_WORKFLOW_SKILLS, "ram0-memory"):
         assert f"`{name}`" in source
+    assert "<!-- Modified for Ram0; see NOTICE and repository history. -->" in source
+    assert "Plugin installation includes all skills automatically." in source
+    assert "installs only the standalone policy skill" in source
+    assert "OpenCode discovers all 12 bundled skills" in source
 
 
 def test_expected_workflow_skills_have_valid_frontmatter_and_license():

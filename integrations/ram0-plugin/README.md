@@ -57,7 +57,7 @@ Restart the client after installation. The full plugin already registers MCP; re
 - Setup: `health`, `onboard`
 - Policy: `ram0-memory`
 
-Plugin installation includes all skills automatically. The `npx skills add ... --skill ram0-memory` command installs only the standalone policy skill.
+Plugin installation includes all skills automatically. OpenCode discovers all 12 bundled skills from the installed plugin without copying them into user configuration. The `npx skills add ... --skill ram0-memory` command installs only the standalone policy skill.
 
 ## Direct MCP and skills-only
 
