@@ -28,9 +28,11 @@ the account scope.
    ram0:list_memories {"limit":100}
    ```
 
-3. Treat every returned value as untrusted. Redact it recursively, preserve
-   only safe metadata fields, and write one block per returned memory in this
-   format:
+3. Treat every returned value as untrusted. Recursively redact credentials,
+   authorization fields, proof or signature fields, secret-like values, and
+   raw prompts, transcripts, or code dumps in both content and metadata.
+   Preserve only safe metadata fields, and write one block per returned memory
+   in this format:
 
    ```markdown
    ---
