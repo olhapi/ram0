@@ -58,3 +58,24 @@ def test_workflow_skill_uses_only_account_scoped_ram0_contract(name):
     # Workflow-specific behavior is enforced by its planned task because
     # search-before-write, confirmation, read limits, and dream ordering do
     # not apply uniformly to every workflow skill.
+
+
+def test_remember_searches_before_a_single_write():
+    source = _skill_source("remember")
+    assert source.index("`ram0:search_memories`") < source.index("`ram0:remember`")
+    assert "equivalent" in source.lower()
+    assert "one concise" in source.lower()
+
+
+def test_forget_requires_selection_and_confirmation():
+    source = _skill_source("forget").lower()
+    assert "exact" in source and "confirm" in source
+    assert "never delete" in source
+    assert "`ram0:forget_memory`" in _skill_source("forget")
+
+
+def test_browsing_skills_disclose_bounded_results():
+    for name in ("peek", "tour"):
+        source = _skill_source(name).lower()
+        assert "limit" in source and "untrusted" in source
+    assert "account-wide" in _skill_source("tour").lower()
