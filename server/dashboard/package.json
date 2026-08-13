@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts 'src/app/(root)/dashboard/help/help-content.test.ts'",
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit"

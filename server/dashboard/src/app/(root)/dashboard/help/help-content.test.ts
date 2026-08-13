@@ -4,7 +4,6 @@ import test from "node:test";
 
 import {
   agentInstalls,
-  cliInstallCommand,
   mcpUrl,
   persistentSetupCommand,
   skillInstallCommand,
@@ -31,30 +30,25 @@ test("URL helpers validate and normalize the configured endpoint", () => {
   }
 });
 
-test("Help gives every client one persistent, secret-free setup flow", () => {
+test("Help gives supported clients one public, secret-free setup flow", () => {
   const installs = agentInstalls("https://api.example.test");
   assert.deepEqual(
     installs.map(({ id }) => id),
-    ["codex", "claude-code", "cursor", "opencode"],
-  );
-  assert.match(
-    cliInstallCommand,
-    /python3 ~\/ram0-plugins\/ram0\/integrations\/ram0-plugin\/scripts\/install_cli\.py/,
+    ["codex", "claude-code"],
   );
   for (const install of installs) {
     const generated = JSON.stringify(install);
-    assert.equal(install.cliInstall, cliInstallCommand);
     assert.equal(
       install.persistentSetup,
       "ram0 setup --url 'https://api.example.test'",
     );
     assert.equal(install.configVerify, "ram0 config test");
-    assert.match(install.directMcpSetup, /python3/);
+    assert.match(install.pluginNote, /restart|reload/i);
     assert.match(
-      install.directMcpSetup,
-      /\.local\/share\/ram0\/mcp_stdio_adapter\.py/,
+      install.pluginInstall,
+      /https:\/\/github\.com\/olhapi\/ram0-plugins\.git/,
     );
-    assert.match(install.pluginNote + install.directMcpNote, /restart|reload/i);
+    assert.match(install.pluginUpdate, /ram0-plugins/);
     assert.match(install.migration, /mem0-plugins/);
     assert.match(install.troubleshooting.join("\n"), /ram0 config set-key/);
     assert.match(
@@ -65,7 +59,7 @@ test("Help gives every client one persistent, secret-free setup flow", () => {
     assert.match(install.troubleshooting.join("\n"), /unreachable endpoint/i);
     assert.doesNotMatch(
       generated,
-      /export RAM0_API_(?:URL|KEY)|launchctl|Authorization.*Bearer|m0sk_/,
+      /git clone|~\/ram0-plugins|contribut|bun install|file:\/\/|export RAM0_API_(?:URL|KEY)|launchctl|Authorization.*Bearer|m0sk_/i,
     );
   }
 });
@@ -91,14 +85,19 @@ test("Help page renders permanent setup, migration, and troubleshooting", () => 
   ]) {
     assert.match(page, new RegExp(text));
   }
-  assert.match(page, /install\.cliInstall/);
+  assert.match(page, /install\.pluginInstall/);
+  assert.match(page, /install\.pluginUpdate/);
   assert.match(page, /install\.persistentSetup/);
   assert.match(page, /install\.configVerify/);
-  assert.match(page, /install\.directMcpSetup/);
   assert.match(page, /~\/\.config\/ram0\/config\.json/);
   assert.doesNotMatch(
     page,
-    /protected environment|launchctl|Authorization: Bearer/,
+    /git clone|~\/ram0-plugins|contribut|source build|protected environment|launchctl|Authorization: Bearer/i,
+  );
+  assert.match(page, />\s*Mem0 MCP guide\s*</);
+  assert.doesNotMatch(
+    page,
+    /href="https:\/\/docs\.mem0\.ai[^\"]*"[\s\S]{0,120}>\s*Ram0/i,
   );
 });
 
