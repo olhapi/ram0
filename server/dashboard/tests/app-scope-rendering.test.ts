@@ -24,6 +24,8 @@ test("dashboard exposes project and global memory scope", () => {
   assert.ok(memoriesPage.includes('label: "Project"'));
   assert.ok(memoriesPage.includes("Global"));
   assert.ok(entitiesPage.includes('value="app"'));
+  assert.ok(entitiesPage.includes('app: "Project"'));
+  assert.ok(entitiesPage.includes("{ENTITY_TYPE_LABELS[value]}"));
 });
 
 test("project deletion reuses the entity confirmation flow", () => {

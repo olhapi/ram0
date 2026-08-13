@@ -29,6 +29,12 @@ import type { EntityType } from "@/types/api";
 
 type EntityFilter = "all" | EntityType;
 
+const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
+  app: "Project",
+  agent: "Agent",
+  run: "Run",
+};
+
 export default function EntitiesPage() {
   const [entityToDelete, setEntityToDelete] = useState<Entity | null>(null);
   const [entityFilter, setEntityFilter] = useState<EntityFilter>("all");
@@ -70,7 +76,7 @@ export default function EntitiesPage() {
       width: 100,
       render: (value: Entity["type"]) => (
         <Badge variant="outline" className="capitalize">
-          {value}
+          {ENTITY_TYPE_LABELS[value]}
         </Badge>
       ),
     },
