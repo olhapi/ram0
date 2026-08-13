@@ -158,7 +158,7 @@ The Ram0 plugin should adopt the relevant upstream Mem0 lifecycle behavior:
 - Construct default reads as current-project plus global.
 - Construct project reads as current-project only.
 - Construct global reads as all memories for the authenticated account.
-- Prevent an agent-authored argument from silently selecting a different project than the resolved local context.
+- For automatic lifecycle calls, supply the per-event resolved `app_id`. For interactive MCP, present that context as advisory and allow the agent to select any validated account-local `app_id`.
 - Store automatic prompt, stop, and compaction captures in the current project.
 
 Direct MCP registration without the plugin remains usable, but it has no automatic Git detection. Its caller must explicitly provide validated project context or choose global scope.

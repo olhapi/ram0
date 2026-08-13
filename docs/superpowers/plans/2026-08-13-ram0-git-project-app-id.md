@@ -480,7 +480,7 @@ If a host changes cwd within a session, each new hook invocation resolves from t
 Change the skills from “API key selects the whole scope” to:
 
 ```text
-Authentication selects the account. The plugin supplies the current app_id.
+Authentication selects the account. Automatic lifecycle calls use the per-event resolved app_id; interactive MCP receives it as advisory context and the agent supplies the validated app_id.
 Normal reads use current project plus global memories.
 Use scope="project" for repository-only reads.
 Use scope="global" only when the user requests cross-project recall or an account-wide write.

@@ -441,6 +441,12 @@ def main() -> None:
                             result = await mcp.call_tool("remember", arguments)
                             created_ids.update(mcp_memory_ids(result, "result"))
                         owner_memories[role] = created_ids
+
+                for role, key in (("admin", admin_key), ("member", member_key)):
+                    other_role = "member" if role == "admin" else "admin"
+                    created_ids = owner_memories[role]
+                    foreign_ids = owner_memories[other_role]
+                    async with McpClient(f"{base_url}/mcp", auth=key) as mcp:
                         reads = {
                             "default": await mcp.call_tool("list_memories", {"limit": 100, "app_id": app_id}),
                             "project": await mcp.call_tool(
@@ -458,8 +464,9 @@ def main() -> None:
                             raise AssertionError("MCP project scope was not exact")
                         if not created_ids.issubset(read_ids["global"]):
                             raise AssertionError("MCP global scope was not owner-wide")
-                if owner_memories["admin"] & owner_memories["member"]:
-                    raise AssertionError("MCP app scope crossed owner boundary")
+                        for scope_name, result_ids in read_ids.items():
+                            if foreign_ids & result_ids:
+                                raise AssertionError(f"MCP {scope_name} scope crossed owner boundary")
 
             asyncio.run(verify_mcp_app_scopes())
 

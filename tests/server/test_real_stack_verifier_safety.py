@@ -68,3 +68,6 @@ def test_verifier_source_proves_account_local_app_scopes_and_restore_state():
     assert 'await mcp.call_tool("remember"' in source
     assert 'await mcp.call_tool("list_memories"' in source
     assert "MCP default scope did not include project plus global" in source
+    assert "foreign_ids = owner_memories[other_role]" in source
+    assert "for scope_name, result_ids in read_ids.items()" in source
+    assert "foreign_ids & result_ids" in source
