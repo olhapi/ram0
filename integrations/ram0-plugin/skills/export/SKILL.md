@@ -16,8 +16,10 @@ expose secrets. Before any preview or display, and before writing the export,
 recursively redact credentials, authorization fields, proof or signature
 fields, and secret-like values from content and metadata. Replace removed
 material with `[redacted sensitive memory content]`; do not show its original
-value. Authentication selects the account. The plugin supplies the current
-`app_id`. Normal reads use current project plus global memories. Use
+value. Authentication selects the account. For interactive MCP calls, supply
+the validated current `app_id` from the plugin's advisory project context.
+Automatic lifecycle calls resolve it per event. Normal reads use
+current project plus global memories. Use
 `scope="project"` for repository-only reads. Use `scope="global"` only when
 the user requests cross-project recall or an account-wide write. Never supply
 `user_id` or place `app_id` in metadata.
