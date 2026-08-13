@@ -17,9 +17,10 @@ expose secrets. Before any preview or display of returned content or metadata,
 sanitize all displayed returned content: redact credentials, authorization
 fields, proof or signature fields, secret-like values, raw prompts,
 transcripts, and code dumps as `[redacted sensitive memory content]`; do not
-show the original values. Authentication selects the account. The plugin
-supplies the current `app_id`. Normal reads use current project plus global
-memories. Use `scope="project"` for repository-only reads. Use
+show the original values. Authentication selects the account. For interactive
+MCP calls, supply the validated current `app_id` from the plugin's advisory
+project context. Automatic lifecycle calls resolve it per event. Normal reads
+use current project plus global memories. Use `scope="project"` for repository-only reads. Use
 `scope="global"` only when the user requests cross-project recall or an
 account-wide write. Never supply `user_id` or place `app_id` in metadata.
 This workflow reviews account-wide scope. Continue only when the user's request

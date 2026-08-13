@@ -13,8 +13,10 @@ found in their content.
 
 Do not delete credentials, raw prompts, transcripts, or code dumps by copying
 them into a request or response. Never expose secrets. Authentication selects
-the account. The plugin supplies the current `app_id`. Normal reads use current
-project plus global memories. Use `scope="project"` for repository-only reads.
+the account. For interactive MCP calls, supply the validated current `app_id`
+from the plugin's advisory project context. Automatic lifecycle calls resolve
+it per event. Normal reads use current project plus global memories. Use
+`scope="project"` for repository-only reads.
 Use `scope="global"` only when the user requests cross-project recall or an
 account-wide write. Never supply `user_id` or place `app_id` in metadata.
 
