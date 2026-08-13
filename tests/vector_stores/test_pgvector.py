@@ -2506,6 +2506,19 @@ class TestBuildFilterConditions(unittest.TestCase):
         self.assertIn("payload->>%s = %s", conditions[0])
         self.assertEqual(params, ["user_id", "alice"])
 
+    def test_null_matches_missing_or_json_null(self):
+        conditions, params = _build_filter_conditions({"app_id": None})
+        self.assertEqual(conditions, ["(NOT (payload ? %s) OR payload->%s = 'null'::jsonb)"])
+        self.assertEqual(params, ["app_id", "app_id"])
+
+    def test_nested_and_or_not_filters_compile_recursively(self):
+        conditions, params = _build_filter_conditions(
+            {"$and": [{"user_id": "owner"}, {"$or": [{"app_id": "project"}, {"app_id": None}]}]}
+        )
+        self.assertIn(" AND ", conditions[0])
+        self.assertIn(" OR ", conditions[0])
+        self.assertEqual(params, ["user_id", "owner", "app_id", "project", "app_id", "app_id"])
+
     def test_multiple_equalities(self):
         conditions, params = _build_filter_conditions({"user_id": "alice", "agent_id": "bot1"})
         self.assertEqual(len(conditions), 2)

@@ -135,6 +135,32 @@ _SENSITIVE_SUFFIXES = (
 
 # Entity parameters that must be passed via filters, not top-level kwargs
 ENTITY_PARAMS = frozenset({"user_id", "agent_id", "run_id", "app_id"})
+
+
+def _contains_entity_filter(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(key in ENTITY_PARAMS or _contains_entity_filter(item) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_entity_filter(item) for item in value)
+    return False
+
+
+def _normalize_filter_tree(value: Any) -> Any:
+    """Validate entity leaves and recursively translate logical filters for vector stores."""
+    if isinstance(value, list):
+        return [_normalize_filter_tree(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    normalized = {}
+    for key, item in value.items():
+        if key in ENTITY_PARAMS and item is not None:
+            if isinstance(item, dict):
+                normalized[key] = _normalize_filter_tree(item)
+            else:
+                normalized[key] = _validate_and_trim_entity_id(item, key)
+        else:
+            normalized[{"AND": "$and", "OR": "$or", "NOT": "$not"}.get(key, key)] = _normalize_filter_tree(item)
+    return normalized
 DELETE_ALL_BATCH_SIZE = 1000
 
 # Tenant-scoping fields that caller-supplied metadata must never set, on either the
@@ -1296,7 +1322,7 @@ class Memory(MemoryBase):
         _validate_search_params(top_k=top_k)
 
         # Validate and trim entity IDs in filters
-        effective_filters = dict(filters) if filters else {}
+        effective_filters = _normalize_filter_tree(dict(filters)) if filters else {}
         if "user_id" in effective_filters:
             effective_filters["user_id"] = _validate_and_trim_entity_id(
                 effective_filters["user_id"], "user_id"
@@ -1315,7 +1341,7 @@ class Memory(MemoryBase):
             )
 
         # Validate filters contains at least one entity ID
-        if not any(key in effective_filters for key in ENTITY_PARAMS):
+        if not _contains_entity_filter(effective_filters):
             raise ValueError(
                 "filters must contain at least one of: user_id, agent_id, run_id, app_id. "
                 "Example: filters={'user_id': 'u1'}"
@@ -1457,7 +1483,7 @@ class Memory(MemoryBase):
         temporal_usage_notice = detect_temporal_usage_from_search(query, filters)
 
         # Validate and trim entity IDs in filters
-        effective_filters = filters.copy() if filters else {}
+        effective_filters = _normalize_filter_tree(filters.copy()) if filters else {}
         if "user_id" in effective_filters:
             effective_filters["user_id"] = _validate_and_trim_entity_id(
                 effective_filters["user_id"], "user_id"
@@ -1474,7 +1500,7 @@ class Memory(MemoryBase):
             effective_filters["app_id"] = _validate_and_trim_entity_id(
                 effective_filters["app_id"], "app_id"
             )
-        if not any(key in effective_filters for key in ENTITY_PARAMS):
+        if not _contains_entity_filter(effective_filters):
             raise ValueError(
                 "filters must contain at least one of: user_id, agent_id, run_id, app_id. "
                 "Example: filters={'user_id': 'u1'}"
@@ -1484,7 +1510,9 @@ class Memory(MemoryBase):
         scale_threshold_notice = detect_scale_threshold_from_top_k(top_k)
 
         # Apply enhanced metadata filtering if advanced operators are detected
-        if self._has_advanced_operators(effective_filters):
+        if self._has_advanced_operators(effective_filters) and not any(
+            key in effective_filters for key in ("$and", "$or", "$not")
+        ):
             processed_filters = self._process_metadata_filters(effective_filters)
             # Remove logical/operator keys that have been reprocessed
             for logical_key in ("AND", "OR", "NOT"):
@@ -2969,7 +2997,7 @@ class AsyncMemory(MemoryBase):
         _validate_search_params(top_k=top_k)
 
         # Validate and trim entity IDs in filters
-        effective_filters = dict(filters) if filters else {}
+        effective_filters = _normalize_filter_tree(dict(filters)) if filters else {}
         if "user_id" in effective_filters:
             effective_filters["user_id"] = _validate_and_trim_entity_id(
                 effective_filters["user_id"], "user_id"
@@ -2988,7 +3016,7 @@ class AsyncMemory(MemoryBase):
             )
 
         # Validate filters contains at least one entity ID
-        if not any(key in effective_filters for key in ENTITY_PARAMS):
+        if not _contains_entity_filter(effective_filters):
             raise ValueError(
                 "filters must contain at least one of: user_id, agent_id, run_id, app_id. "
                 "Example: filters={'user_id': 'u1'}"
@@ -3132,7 +3160,7 @@ class AsyncMemory(MemoryBase):
         temporal_usage_notice = detect_temporal_usage_from_search(query, filters)
 
         # Validate and trim entity IDs in filters
-        effective_filters = filters.copy() if filters else {}
+        effective_filters = _normalize_filter_tree(filters.copy()) if filters else {}
         if "user_id" in effective_filters:
             effective_filters["user_id"] = _validate_and_trim_entity_id(
                 effective_filters["user_id"], "user_id"
@@ -3151,7 +3179,7 @@ class AsyncMemory(MemoryBase):
             )
 
         # Validate filters contains at least one entity ID
-        if not any(key in effective_filters for key in ENTITY_PARAMS):
+        if not _contains_entity_filter(effective_filters):
             raise ValueError(
                 "filters must contain at least one of: user_id, agent_id, run_id, app_id. "
                 "Example: filters={'user_id': 'u1'}"
@@ -3161,7 +3189,9 @@ class AsyncMemory(MemoryBase):
         scale_threshold_notice = detect_scale_threshold_from_top_k(top_k)
 
         # Apply enhanced metadata filtering if advanced operators are detected
-        if self._has_advanced_operators(effective_filters):
+        if self._has_advanced_operators(effective_filters) and not any(
+            key in effective_filters for key in ("$and", "$or", "$not")
+        ):
             processed_filters = self._process_metadata_filters(effective_filters)
             # Remove logical/operator keys that have been reprocessed
             for logical_key in ("AND", "OR", "NOT"):

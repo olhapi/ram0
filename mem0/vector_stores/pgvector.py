@@ -56,6 +56,16 @@ def _build_filter_conditions(filters):
         return conditions, params
 
     for key, value in filters.items():
+        if key == "$and":
+            and_groups = []
+            for and_filter in value:
+                sub_conds, sub_params = _build_filter_conditions(and_filter)
+                if sub_conds:
+                    and_groups.append("(" + " AND ".join(sub_conds) + ")")
+                    params.extend(sub_params)
+            if and_groups:
+                conditions.append("(" + " AND ".join(and_groups) + ")")
+            continue
         if key == "$or":
             or_groups = []
             for or_filter in value:
@@ -111,6 +121,9 @@ def _build_filter_conditions(filters):
         elif isinstance(value, list):
             conditions.append("payload->>%s = ANY(%s)")
             params.extend([key, [str(v) for v in value]])
+        elif value is None:
+            conditions.append("(NOT (payload ? %s) OR payload->%s = 'null'::jsonb)")
+            params.extend([key, key])
         else:
             conditions.append("payload->>%s = %s")
             if isinstance(value, bool):

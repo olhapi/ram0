@@ -297,7 +297,12 @@ def _save_mapping(
         try:
             os.fchmod(descriptor, 0o600)
             payload = (json.dumps(updated, indent=2, sort_keys=True) + "\n").encode("utf-8")
-            os.write(descriptor, payload)
+            written = 0
+            while written < len(payload):
+                count = os.write(descriptor, payload[written:])
+                if count <= 0:
+                    raise OSError("short project mapping write")
+                written += count
             os.fsync(descriptor)
             os.close(descriptor)
             descriptor = -1

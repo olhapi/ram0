@@ -289,3 +289,17 @@ def test_concurrent_mapping_writers_wait_re_read_and_merge_without_exposing_cont
     assert str(first) not in raw
     assert str(second) not in raw
     assert "private.example" not in raw
+
+
+def test_mapping_write_retries_short_os_write(tmp_path, monkeypatch):
+    """Breaks if an interrupted short write leaves a truncated project mapping."""
+    repo = git_repo(tmp_path / "repo", "git@github.com:olhapi/ram0.git")
+    real_write = os.write
+
+    def short_write(descriptor, payload):
+        return real_write(descriptor, payload[: max(1, len(payload) // 2)])
+
+    monkeypatch.setattr(os, "write", short_write)
+    context = resolve_project_context(repo, state_dir=tmp_path / "state")
+    assert context.app_id == "github.com-olhapi-ram0"
+    assert context.app_id in json.loads((tmp_path / "state" / "project_map.json").read_text()).values()
