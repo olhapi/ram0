@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Callable
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -15,46 +16,53 @@ def _payload(request: dict[str, Any]) -> Any:
     return json.loads(request["body"]) if request["body"] is not None else None
 
 
-def _assert_no_server_owned_fields(value: Any) -> None:
-    forbidden = {"user_id", "app_id", "run_id", "expiration_date"}
+def _assert_no_owner_or_lifecycle_fields(value: Any) -> None:
+    forbidden = {"user_id", "run_id", "expiration_date"}
     if isinstance(value, dict):
         assert not (set(value) & forbidden)
         for child in value.values():
-            _assert_no_server_owned_fields(child)
+            _assert_no_owner_or_lifecycle_fields(child)
     elif isinstance(value, list):
         for child in value:
-            _assert_no_server_owned_fields(child)
+            _assert_no_owner_or_lifecycle_fields(child)
 
 
 @pytest.mark.parametrize(
     ("operation", "method", "path", "expected_payload"),
     [
         (
-            lambda client: client.search("architecture", limit=7),
+            lambda client: client.search("architecture", limit=7, app_id="app-a", scope="project"),
             "POST",
             "/search",
-            {"query": "architecture", "top_k": 7},
+            {"query": "architecture", "top_k": 7, "scope": "project", "app_id": "app-a"},
         ),
         (
-            lambda client: client.add("Prefer tests", {"project": "ram0"}),
+            lambda client: client.add("Prefer tests", {"project": "ram0"}, app_id="app-a"),
             "POST",
             "/memories",
             {
                 "messages": [{"role": "user", "content": "Prefer tests"}],
                 "metadata": {"project": "ram0"},
+                "app_id": "app-a",
             },
         ),
         (
-            lambda client: client.add_durable("Prefer tests", {"project": "ram0"}),
+            lambda client: client.add_durable("Prefer tests", {"project": "ram0"}, app_id="app-a"),
             "POST",
             "/memories",
             {
                 "messages": [{"role": "user", "content": "Prefer tests"}],
                 "metadata": {"project": "ram0"},
                 "infer": False,
+                "app_id": "app-a",
             },
         ),
-        (lambda client: client.list(limit=3), "GET", "/memories?top_k=3", None),
+        (
+            lambda client: client.list(limit=3, app_id="app-a", scope="project"),
+            "GET",
+            "/memories?top_k=3&scope=project&app_id=app-a",
+            None,
+        ),
         (lambda client: client.get("memory-1"), "GET", "/memories/memory-1", None),
         (
             lambda client: client.update("memory-1", "Updated", {"branch": "main"}),
@@ -93,7 +101,95 @@ def test_operations_send_only_bearer_auth_and_safe_payloads(
     assert request["headers"]["user-agent"].startswith("ram0-plugin/")
     assert ("content-type" in request["headers"]) is (expected_payload is not None)
     assert _payload(request) == expected_payload
-    _assert_no_server_owned_fields(expected_payload)
+    _assert_no_owner_or_lifecycle_fields(expected_payload)
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected_context"),
+    [
+        (None, {"app_id": "app-a"}),
+        ("project", {"scope": "project", "app_id": "app-a"}),
+        ("global", {"scope": "global"}),
+    ],
+)
+def test_search_scope_matrix_sends_only_trusted_scope_intent(ram0_server, scope, expected_context):
+    """Breaks if a read widens or narrows the selected project/global scope."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    client.search("architecture", app_id="app-a", scope=scope)
+
+    payload = _payload(ram0_server.requests[0])
+    assert payload == {
+        "query": "architecture",
+        "top_k": 10,
+        **expected_context,
+    }
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected_query"),
+    [
+        (
+            None,
+            {"top_k": ["100"], "app_id": ["app-a"]},
+        ),
+        ("project", {"top_k": ["100"], "scope": ["project"], "app_id": ["app-a"]}),
+        ("global", {"top_k": ["100"], "scope": ["global"]}),
+    ],
+)
+def test_list_scope_matrix_sends_only_the_selected_filter(ram0_server, scope, expected_query):
+    """Breaks if list scope leaks another project or omits global memories from the default."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    client.list(app_id="app-a", scope=scope)
+
+    assert parse_qs(urlsplit(ram0_server.requests[0]["path"]).query) == expected_query
+
+
+@pytest.mark.parametrize(
+    ("operation", "scope", "expected_app_id"),
+    [
+        ("add", None, "app-a"),
+        ("add", "project", "app-a"),
+        ("add", "global", None),
+        ("add_durable", None, "app-a"),
+        ("add_durable", "project", "app-a"),
+        ("add_durable", "global", None),
+    ],
+)
+def test_write_scope_matrix_controls_only_trusted_top_level_app_id(ram0_server, operation, scope, expected_app_id):
+    """Breaks if project writes become global or global writes acquire a project label."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    getattr(client, operation)("Decision", {"kind": "decision"}, app_id="app-a", scope=scope)
+
+    payload = _payload(ram0_server.requests[0])
+    assert payload.get("app_id") == expected_app_id
+    assert ("app_id" in payload) is (expected_app_id is not None)
+    assert "app_id" not in payload["metadata"]
+
+
+@pytest.mark.parametrize("scope", ["", "all", "repository", 1])
+def test_invalid_scope_is_rejected_before_network(ram0_server, scope):
+    """Breaks if a typo silently widens a read or changes write placement."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    with pytest.raises(ValueError, match="scope"):
+        client.search("architecture", app_id="app-a", scope=scope)
+
+    assert ram0_server.requests == []
+
+
+@pytest.mark.parametrize("operation", ["search", "list", "add", "add_durable"])
+def test_default_and_project_scopes_require_normalized_app_id_before_network(ram0_server, operation):
+    """Breaks if an absent current project silently becomes account-global."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation in {"search", "add", "add_durable"} else ()
+
+    with pytest.raises(ValueError, match="app_id"):
+        getattr(client, operation)(*arguments, app_id=None)
+
+    assert ram0_server.requests == []
 
 
 @pytest.mark.parametrize(
@@ -120,7 +216,7 @@ def test_metadata_rejects_server_owned_and_credential_fields_before_network(ram0
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
     with pytest.raises(ValueError, match="reserved"):
-        client.add("Never send owner data", {reserved_key: "value"})
+        client.add("Never send owner data", {reserved_key: "value"}, app_id="app-a")
 
     assert ram0_server.requests == []
 
@@ -152,7 +248,7 @@ def test_memory_metadata_rejects_padded_reserved_keys_before_network(ram0_server
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
     with pytest.raises(ValueError, match="reserved"):
-        client.add("Never send padded reserved fields", {padded_key: "value"})
+        client.add("Never send padded reserved fields", {padded_key: "value"}, app_id="app-a")
 
     assert ram0_server.requests == []
 
@@ -180,6 +276,7 @@ def test_credential_adjacent_metadata_keys_are_not_false_positives(ram0_server):
             "password_policy": "rotated",
             "credential_rotation_date": "2026-08-10",
         },
+        app_id="app-a",
     )
 
     assert len(ram0_server.requests) == 1
@@ -208,7 +305,7 @@ def test_http_errors_are_actionable_without_leaking_credentials_or_payload(ram0_
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
     with pytest.raises(Ram0ClientError) as raised:
-        client.add("Prefer tests", {"project": "ram0"})
+        client.add("Prefer tests", {"project": "ram0"}, app_id="app-a")
 
     error = raised.value
     assert (error.status, error.code, error.action) == (503, "service_unavailable", "Check RAM0_API_URL and try again.")

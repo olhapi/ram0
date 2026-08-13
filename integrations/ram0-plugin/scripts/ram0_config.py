@@ -19,6 +19,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_RAM0_API_URL = "http://localhost:8888"
 CONFIG_RELATIVE_PATH = Path(".config/ram0/config.json")
+PLUGIN_STATE_RELATIVE_PATH = Path(".ram0/plugin-data")
 
 
 class Ram0ConfigError(ValueError):
@@ -36,6 +37,19 @@ class Ram0Config:
 
 def config_path(home: Path | None = None) -> Path:
     return (Path.home() if home is None else Path(home)) / CONFIG_RELATIVE_PATH
+
+
+def plugin_state_directory(
+    environment: Mapping[str, str] | None = None,
+    *,
+    home: Path | None = None,
+) -> Path:
+    """Return the host-configured private state directory for plugin runtime data."""
+    source = os.environ if environment is None else environment
+    configured = source.get("RAM0_PLUGIN_DATA") or source.get("CLAUDE_PLUGIN_DATA")
+    if configured:
+        return Path(configured).expanduser()
+    return (Path.home() if home is None else Path(home)) / PLUGIN_STATE_RELATIVE_PATH
 
 
 def normalize_api_url(value: str) -> str:
