@@ -464,6 +464,23 @@ def main() -> None:
                 },
             }
             for auth_kind, owners in credentials.items():
+                delete_app = f"verify-{uuid.uuid4().hex}-delete"
+                delete_app_memory_ids: dict[str, str] = {}
+                for role, _owner_id, headers in owners:
+                    delete_content = secrets.token_urlsafe(18)
+                    canaries.append(delete_content)
+                    disposable = client.post(
+                        "/memories",
+                        headers=headers,
+                        json={
+                            "messages": [{"role": "user", "content": delete_content}],
+                            "infer": False,
+                            "app_id": delete_app,
+                        },
+                    )
+                    assert_status(disposable, 200, f"{auth_kind} {role} app deletion setup")
+                    delete_app_memory_ids[role] = disposable.json()["results"][0]["id"]
+
                 for role, _owner_id, headers in owners:
                     other_role = "member" if role == "admin" else "admin"
                     own_ids = scope_memory_ids[role]
@@ -494,29 +511,22 @@ def main() -> None:
                     }
                     if app_entities.get(app_ids["app-a"], {}).get("total_memories") != 1:
                         raise AssertionError("same-name app entity count crossed owner boundary")
+                    if app_entities.get(delete_app, {}).get("total_memories") != 1:
+                        raise AssertionError("same-label deletion fixture crossed owner boundary")
 
-                    delete_app = f"verify-{uuid.uuid4().hex}-delete"
-                    delete_content = secrets.token_urlsafe(18)
-                    canaries.append(delete_content)
-                    disposable = client.post(
-                        "/memories",
-                        headers=headers,
-                        json={
-                            "messages": [{"role": "user", "content": delete_content}],
-                            "infer": False,
-                            "app_id": delete_app,
-                        },
-                    )
-                    assert_status(disposable, 200, f"{auth_kind} {role} app deletion setup")
-                    disposable_id = disposable.json()["results"][0]["id"]
-                    deleted_app = client.delete(f"/entities/app/{delete_app}", headers=headers)
-                    assert_status(deleted_app, 200, f"{auth_kind} {role} app entity deletion")
-                    if memory.vector_store.get(vector_id=disposable_id) is not None:
-                        raise AssertionError("app entity deletion retained matching memory")
-                    if memory.vector_store.get(vector_id=own_ids["app-a"]) is None:
-                        raise AssertionError("app entity deletion removed a different app")
-                    if memory.vector_store.get(vector_id=scope_memory_ids[other_role]["app-a"]) is None:
-                        raise AssertionError("app entity deletion crossed owner boundary")
+                delete_owner_index = 0 if auth_kind == "JWT" else 1
+                role, _owner_id, headers = owners[delete_owner_index]
+                other_role = "member" if role == "admin" else "admin"
+                deleted_app = client.delete(f"/entities/app/{delete_app}", headers=headers)
+                assert_status(deleted_app, 200, f"{auth_kind} {role} app entity deletion")
+                if memory.vector_store.get(vector_id=delete_app_memory_ids[role]) is not None:
+                    raise AssertionError("app entity deletion retained caller same-label memory")
+                if memory.vector_store.get(vector_id=delete_app_memory_ids[other_role]) is None:
+                    raise AssertionError("app entity deletion removed foreign same-label memory")
+                if memory.vector_store.get(vector_id=scope_memory_ids[role]["app-a"]) is None:
+                    raise AssertionError("app entity deletion removed a different app")
+                if memory.vector_store.get(vector_id=scope_memory_ids[other_role]["app-a"]) is None:
+                    raise AssertionError("app entity deletion crossed owner boundary")
                 matrix["app scopes/entities"][auth_kind] = True
 
             sentinel: dict[str, str] = {}

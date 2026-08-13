@@ -52,3 +52,6 @@ def test_verifier_source_proves_account_local_app_scopes_and_restore_state():
 
     assert 'client.delete(f"/entities/app/' in source
     assert 'scope_memory_ids[other_role]["app-a"]' in source
+    assert "delete_app_memory_ids[role]" in source
+    assert "delete_app_memory_ids[other_role]" in source
+    assert 'delete_owner_index = 0 if auth_kind == "JWT" else 1' in source
