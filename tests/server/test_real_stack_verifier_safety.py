@@ -1,3 +1,7 @@
+"""Safety and acceptance contracts for the disposable real-stack verifier."""
+
+# Modified for Ram0; see NOTICE and repository history.
+
 from pathlib import Path
 
 import pytest
@@ -28,3 +32,23 @@ def test_verifier_source_does_not_unlink_repository_history_database():
 
     assert 'SERVER / "history" / "history.db"' not in source
     assert "HISTORY_DB.unlink" not in source
+
+
+def test_verifier_source_proves_account_local_app_scopes_and_restore_state():
+    source = Path(verifier.__file__).read_text()
+
+    for contract in (
+        '"global"',
+        '"app-a"',
+        '"app-b"',
+        '"default project plus global"',
+        '"project exact"',
+        '"global owner-wide"',
+        "app entity deletion",
+        "payload->>'app_id'",
+        "app_scopes=true",
+    ):
+        assert contract in source
+
+    assert 'client.delete(f"/entities/app/' in source
+    assert 'scope_memory_ids[other_role]["app-a"]' in source

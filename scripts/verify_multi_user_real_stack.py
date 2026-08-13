@@ -7,10 +7,13 @@ the external embedding call. It prints a secret-free PASS matrix and removes
 the container, database dumps, restored databases, and generated history DB.
 """
 
+# Modified for Ram0; see NOTICE and repository history.
+
 from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
 import os
 import secrets
@@ -128,6 +131,7 @@ def main() -> None:
             "forbidden user_id -> 422",
             "foreign/missing IDs -> generic 404",
             "no cross-owner mutation",
+            "app scopes/entities",
         )
     }
 
@@ -413,6 +417,108 @@ def main() -> None:
                 ],
             }
 
+            app_ids = {
+                "app-a": f"verify-{uuid.uuid4().hex}-a",
+                "app-b": f"verify-{uuid.uuid4().hex}-b",
+            }
+            scope_memory_ids: dict[str, dict[str, str]] = {"admin": {}, "member": {}}
+            for role, headers in (("admin", admin_headers), ("member", member_headers)):
+                for scope_name, app_id in (
+                    ("global", None),
+                    ("app-a", app_ids["app-a"]),
+                    ("app-b", app_ids["app-b"]),
+                ):
+                    content = secrets.token_urlsafe(18)
+                    canaries.append(content)
+                    body: dict[str, Any] = {
+                        "messages": [{"role": "user", "content": content}],
+                        "infer": False,
+                    }
+                    if app_id is not None:
+                        body["app_id"] = app_id
+                    created = client.post("/memories", headers=headers, json=body)
+                    assert_status(created, 200, f"{role} {scope_name} memory create")
+                    scope_memory_ids[role][scope_name] = created.json()["results"][0]["id"]
+                memory.vector_store._patch_payload(
+                    scope_memory_ids[role]["app-a"],
+                    {"categories": [f"app_scope_{role}"], "category_status": "classified"},
+                )
+
+            # Both accounts deliberately use the same app names. Ownership must
+            # remain the outer boundary for every default, project, and global read.
+            read_contracts = {
+                "default project plus global": {
+                    "filters": {"OR": [{"app_id": app_ids["app-a"]}, {"app_id": None}]},
+                    "included": ("global", "app-a"),
+                    "excluded": ("app-b",),
+                },
+                "project exact": {
+                    "filters": {"app_id": app_ids["app-a"]},
+                    "included": ("app-a",),
+                    "excluded": ("global", "app-b"),
+                },
+                "global owner-wide": {
+                    "filters": None,
+                    "included": ("global", "app-a", "app-b"),
+                    "excluded": (),
+                },
+            }
+            for auth_kind, owners in credentials.items():
+                for role, _owner_id, headers in owners:
+                    other_role = "member" if role == "admin" else "admin"
+                    own_ids = scope_memory_ids[role]
+                    foreign_ids = set(scope_memory_ids[other_role].values())
+                    for label, contract in read_contracts.items():
+                        params = {"top_k": "1000"}
+                        search_body: dict[str, Any] = {"query": secrets.token_urlsafe(18), "top_k": 1000}
+                        canaries.append(search_body["query"])
+                        if contract["filters"] is not None:
+                            params["filters"] = json.dumps(contract["filters"])
+                            search_body["filters"] = contract["filters"]
+                        listed = client.get("/memories", headers=headers, params=params)
+                        searched = client.post("/search", headers=headers, json=search_body)
+                        assert_status(listed, 200, f"{auth_kind} {role} {label} list")
+                        assert_status(searched, 200, f"{auth_kind} {role} {label} search")
+                        for result_ids in (ids(listed.json()), ids(searched.json())):
+                            if not {own_ids[name] for name in contract["included"]}.issubset(result_ids):
+                                raise AssertionError(f"{label} omitted an expected memory")
+                            if {own_ids[name] for name in contract["excluded"]} & result_ids:
+                                raise AssertionError(f"{label} crossed app scope")
+                            if foreign_ids & result_ids:
+                                raise AssertionError(f"{label} crossed owner scope")
+
+                    app_entities = {
+                        item["id"]: item
+                        for item in client.get("/entities", headers=headers).json()
+                        if item["type"] == "app"
+                    }
+                    if app_entities.get(app_ids["app-a"], {}).get("total_memories") != 1:
+                        raise AssertionError("same-name app entity count crossed owner boundary")
+
+                    delete_app = f"verify-{uuid.uuid4().hex}-delete"
+                    delete_content = secrets.token_urlsafe(18)
+                    canaries.append(delete_content)
+                    disposable = client.post(
+                        "/memories",
+                        headers=headers,
+                        json={
+                            "messages": [{"role": "user", "content": delete_content}],
+                            "infer": False,
+                            "app_id": delete_app,
+                        },
+                    )
+                    assert_status(disposable, 200, f"{auth_kind} {role} app deletion setup")
+                    disposable_id = disposable.json()["results"][0]["id"]
+                    deleted_app = client.delete(f"/entities/app/{delete_app}", headers=headers)
+                    assert_status(deleted_app, 200, f"{auth_kind} {role} app entity deletion")
+                    if memory.vector_store.get(vector_id=disposable_id) is not None:
+                        raise AssertionError("app entity deletion retained matching memory")
+                    if memory.vector_store.get(vector_id=own_ids["app-a"]) is None:
+                        raise AssertionError("app entity deletion removed a different app")
+                    if memory.vector_store.get(vector_id=scope_memory_ids[other_role]["app-a"]) is None:
+                        raise AssertionError("app entity deletion crossed owner boundary")
+                matrix["app scopes/entities"][auth_kind] = True
+
             sentinel: dict[str, str] = {}
             sentinel_agent = {"admin": "agent-admin-only", "member": "agent-member-only"}
             sentinel_category = {"admin": "category_admin_only", "member": "category_member_only"}
@@ -546,6 +652,7 @@ def main() -> None:
                     "updated_at": now,
                     "user_id": owner_id,
                     "category_status": "unclassified",
+                    "app_id": app_ids["app-a"],
                 }
                 memory.vector_store.insert(vectors=[deterministic_embed(content)], ids=[memory_id], payloads=[payload])
 
@@ -597,6 +704,9 @@ def main() -> None:
                 foreign_job = session.scalar(select(CategoryJob).where(CategoryJob.memory_id == member_reclass_id))
                 if reclass_job is None or str(reclass_job.owner_id) != admin_id or foreign_job is not None:
                     raise AssertionError("started reclassification job was not owner-scoped")
+            for memory_id in (reclass_id, member_reclass_id):
+                if memory.vector_store.get(vector_id=memory_id).payload.get("app_id") != app_ids["app-a"]:
+                    raise AssertionError("reclassification changed app_id")
 
             run(
                 "docker",
@@ -649,6 +759,18 @@ def main() -> None:
                 POST_APP_DUMP,
             )
             restored_legacy_ids = ", ".join(f"'{memory_id}'" for memory_id in legacy_ids)
+            restored_scope_ids = ", ".join(
+                f"'{memory_id}'" for role_ids in scope_memory_ids.values() for memory_id in role_ids.values()
+            )
+            restored_global_ids = ", ".join(
+                f"'{role_ids['global']}'" for role_ids in scope_memory_ids.values()
+            )
+            restored_app_a_ids = ", ".join(
+                f"'{role_ids['app-a']}'" for role_ids in scope_memory_ids.values()
+            )
+            restored_app_b_ids = ", ".join(
+                f"'{role_ids['app-b']}'" for role_ids in scope_memory_ids.values()
+            )
             restored_vector = run(
                 "docker",
                 "exec",
@@ -663,6 +785,24 @@ def main() -> None:
                 "AND count(DISTINCT payload->>'user_id') = 2 "
                 f"AND count(*) FILTER (WHERE id::text IN ({restored_legacy_ids}) "
                 f"AND payload->>'user_id' = '{admin_id}') = 2 FROM memories;",
+                capture=True,
+            )
+            restored_app_scopes = run(
+                "docker",
+                "exec",
+                CONTAINER,
+                "psql",
+                "-U",
+                "postgres",
+                "-d",
+                "ram0_post_vector_restore",
+                "-tAc",
+                f"SELECT count(*) FILTER (WHERE id::text IN ({restored_scope_ids})) = 6 "
+                f"AND count(*) FILTER (WHERE id::text IN ({restored_global_ids}) AND NOT payload ? 'app_id') = 2 "
+                f"AND count(*) FILTER (WHERE id::text IN ({restored_app_a_ids}) "
+                f"AND payload->>'app_id' = '{app_ids['app-a']}') = 2 "
+                f"AND count(*) FILTER (WHERE id::text IN ({restored_app_b_ids}) "
+                f"AND payload->>'app_id' = '{app_ids['app-b']}') = 2 FROM memories;",
                 capture=True,
             )
             restored_app = run(
@@ -682,7 +822,7 @@ def main() -> None:
                 f"AND owner_id = '{admin_id}') = 1;",
                 capture=True,
             )
-            if restored_vector != "t" or restored_app != "t":
+            if restored_vector != "t" or restored_app_scopes != "t" or restored_app != "t":
                 raise AssertionError("restored PostgreSQL backup validation failed")
             run("docker", "exec", CONTAINER, "rm", "-f", POST_VECTOR_DUMP, POST_APP_DUMP)
             dump_check = run(
@@ -739,6 +879,25 @@ def main() -> None:
 
                 owner_id = admin_id if role == "admin" else member_id
                 foreign_owner_id = member_id if role == "admin" else admin_id
+                scoped_reset_ids: dict[str, str] = {}
+                reset_owners = (
+                    (role, headers),
+                    (other_role, member_headers if other_role == "member" else admin_headers),
+                )
+                for reset_role, reset_headers in reset_owners:
+                    reset_content = secrets.token_urlsafe(18)
+                    canaries.append(reset_content)
+                    created = client.post(
+                        "/memories",
+                        headers=reset_headers,
+                        json={
+                            "messages": [{"role": "user", "content": reset_content}],
+                            "infer": False,
+                            "app_id": app_ids["app-a"],
+                        },
+                    )
+                    assert_status(created, 200, f"{auth_kind} {reset_role} scoped reset setup")
+                    scoped_reset_ids[reset_role] = created.json()["results"][0]["id"]
                 caller_job_ids: set[str] = set()
                 foreign_job_ids: set[str] = set()
                 with api.SessionLocal() as session:
@@ -769,6 +928,10 @@ def main() -> None:
                     raise AssertionError("reset retained owner memory")
                 if memory.vector_store.get(vector_id=sentinel[other_role]) is None:
                     raise AssertionError("reset deleted foreign memory")
+                if memory.vector_store.get(vector_id=scoped_reset_ids[role]) is not None:
+                    raise AssertionError("reset retained owner app-scoped memory")
+                if memory.vector_store.get(vector_id=scoped_reset_ids[other_role]) is None:
+                    raise AssertionError("reset deleted foreign app-scoped memory")
                 with api.SessionLocal() as session:
                     caller_jobs_after = session.scalar(
                         select(func.count(CategoryJob.id)).where(CategoryJob.owner_id == uuid.UUID(owner_id))
@@ -822,7 +985,7 @@ def main() -> None:
 
         if not history_db.is_file() or history_db.resolve().parent != history_directory:
             raise AssertionError("history database was not confined to the verifier-owned workspace")
-        print("REAL_STACK_PASS migration=ready idempotent=true backup_restore=true logs_redacted=true")
+        print("REAL_STACK_PASS migration=ready idempotent=true backup_restore=true logs_redacted=true app_scopes=true")
         print("surface | JWT | API key")
         for surface, modes in matrix.items():
             if not all(modes.values()):

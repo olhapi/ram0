@@ -1,5 +1,7 @@
 """MCP transport mounting and authentication boundary contracts."""
 
+# Modified for Ram0; see NOTICE and repository history.
+
 # ruff: noqa: E402 -- server initialization reads these test-only environment values at import time.
 
 import asyncio
@@ -415,11 +417,12 @@ def test_mcp_readme_documents_the_protected_client_contract():
     """The setup guide must not cause clients to use the REST API-key header or a duplicate path."""
     content = (Path(__file__).parents[2] / "server/README.md").read_text()
 
-    assert (
-        '[mcp_servers.ram0]\nurl = "https://ram0.example.lan/mcp"\nbearer_token_env_var = "RAM0_API_KEY"'
-    ) in content
-    assert "Bearer-only" in content
-    assert "does not accept\n`X-API-Key`" in content
+    assert "ram0 setup --url 'https://ram0.example.lan'" in content
+    assert "codex mcp add ram0 -- python3 ~/.local/share/ram0/mcp_stdio_adapter.py" in content
+    assert "~/.config/ram0/config.json" in content
+    assert "Authorization: Bearer" in content
+    assert "bearer_token_env_var" not in content
+    assert "does not accept `X-API-Key`" in content
     assert "account-wide" in content
     assert "ownership version 1" in content
     assert {
@@ -439,8 +442,11 @@ def test_public_ram0_mcp_documentation_is_registered_without_a_literal_credentia
     docs_config = (root / "docs/docs.json").read_text()
     llms_index = (root / "docs/llms.txt").read_text()
 
-    assert 'bearer_token_env_var = "RAM0_API_KEY"' in content
+    assert "ram0 setup --url 'https://ram0.example.lan'" in content
+    assert "~/.config/ram0/config.json" in content
+    assert "Authorization: Bearer" in content
+    assert "bearer_token_env_var" not in content
     assert "X-API-Key" in content
-    assert "expiration_date" in content
+    assert "expiration scope" in content
     assert "open-source/ram0-mcp" in docs_config
     assert "Self-Hosted Ram0 MCP" in llms_index

@@ -51,6 +51,22 @@ Restart after upgrading. Native updates preserve `~/.config/ram0/config.json`; t
 
 Run `ram0 config test`, confirm the `ram0` MCP starts without an environment-variable warning, and invoke `health`. Call `remember`, start another task, then use `search_memories` to verify cross-task recall.
 
+## Git project memory scopes
+
+The plugin groups memory by Git project using Mem0-compatible `app_id`. This is a convenience grouping beneath the authenticated Ram0 account, not a Ram0 project resource or security boundary. Two accounts can use the same project ID without seeing each other's memories.
+
+On each lifecycle event, the plugin resolves the project in this order:
+
+1. A non-empty `RAM0_PROJECT_ID` override.
+2. A previously saved private mapping in the Ram0 plugin state directory.
+3. The canonical Git origin, including its host and repository path.
+4. The Git repository name.
+5. The current directory name when no Git repository is available.
+
+Normal recall includes both the current project and global memories. Normal durable capture writes to the current project. An explicit `global` write is account-wide and has no `app_id`; existing unscoped memories are global automatically. The resolver does not attach raw paths, remotes, branches, credentials, or identities to memory metadata.
+
+Direct MCP does not receive lifecycle event context and cannot auto-detect the editor's current directory. When using it instead of the plugin, pass a normalized `app_id` to project-aware tools, or select `scope: "global"` explicitly. App entities shown by the API and dashboard are derived buckets; deleting one removes only matching memories in the authenticated account.
+
 ## Workflow skills
 
 - Write: `remember`
