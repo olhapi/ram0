@@ -1,3 +1,4 @@
+# Modified for Ram0; see NOTICE and repository history.
 """Immutable ownership policy for account-scoped core-memory routes."""
 
 from collections.abc import Mapping, Sequence
@@ -5,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from auth import require_auth
+from app_scope import validate_app_id
 from fastapi import Depends, HTTPException
 from memory_owner_migration import require_ownership_ready
 from models import User
@@ -34,7 +36,7 @@ def require_memory_principal(user: User = Depends(require_auth)) -> MemoryPrinci
 
 
 def reject_client_owner(value: object) -> None:
-    """Reject user_id in client data, including nested filter and metadata mappings."""
+    """Reject client-controlled owner or project selectors in nested request data."""
     pending = [(value, 0)]
     while pending:
         current, depth = pending.pop()
@@ -43,6 +45,8 @@ def reject_client_owner(value: object) -> None:
         if isinstance(current, Mapping):
             if "user_id" in current:
                 raise HTTPException(status_code=422, detail="user_id is assigned from the authenticated account.")
+            if "app_id" in current:
+                raise HTTPException(status_code=422, detail="app_id is assigned from the trusted project context.")
             pending.extend((nested_value, depth + 1) for nested_value in current.values())
         elif isinstance(current, Sequence) and not isinstance(current, (str, bytes)):
             pending.extend((nested_value, depth + 1) for nested_value in current)
@@ -53,15 +57,18 @@ def owner_filters(
     *,
     agent_id: str | None = None,
     run_id: str | None = None,
+    app_id: str | None = None,
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
-    """Combine optional non-owner filters with the authenticated account owner."""
+    """Combine optional filters with the authenticated account owner and project scope."""
     reject_client_owner(extra)
     filters: dict[str, object] = {"user_id": principal.owner_id}
     if agent_id is not None:
         filters["agent_id"] = agent_id
     if run_id is not None:
         filters["run_id"] = run_id
+    if app_id is not None:
+        filters["app_id"] = validate_app_id(app_id)
     if extra is not None:
         filters.update(extra)
     return filters

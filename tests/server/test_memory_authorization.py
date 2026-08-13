@@ -1,3 +1,4 @@
+# Modified for Ram0; see NOTICE and repository history.
 """Unit contracts for the immutable core-memory ownership policy."""
 
 from types import SimpleNamespace
@@ -18,11 +19,14 @@ def vector_row(*, user_id: str):
     return SimpleNamespace(id="memory-id", payload={"user_id": user_id, "data": "private"})
 
 
-def test_owner_filters_cannot_be_overridden(principal: MemoryPrincipal):
-    """Dropping the canonical owner permits a caller filter to search another account."""
-    assert owner_filters(principal, agent_id="a", extra={"categories": {"in": ["work"]}}) == {
+def test_owner_filters_can_be_narrowed_by_a_trusted_app_id(principal: MemoryPrincipal):
+    """Dropping the trusted app clause permits a project-specific query to read account-wide memory."""
+    assert owner_filters(
+        principal, agent_id="a", app_id="github.com-olhapi-ram0", extra={"categories": {"in": ["work"]}}
+    ) == {
         "user_id": principal.owner_id,
         "agent_id": "a",
+        "app_id": "github.com-olhapi-ram0",
         "categories": {"in": ["work"]},
     }
 
@@ -32,14 +36,22 @@ def test_owner_filters_cannot_be_overridden(principal: MemoryPrincipal):
     [
         {"user_id": "other"},
         {"AND": [{"agent_id": "a"}, {"user_id": {"in": ["other"]}}]},
+        {"app_id": "other-project"},
+        {"AND": [{"agent_id": "a"}, {"app_id": {"in": ["other-project"]}}]},
     ],
 )
 def test_nested_owner_selectors_are_rejected(value: object):
-    """Removing recursive validation lets nested search predicates bypass isolation."""
+    """Removing recursive validation lets nested client predicates bypass trusted isolation."""
     with pytest.raises(HTTPException) as error:
         reject_client_owner(value)
 
     assert error.value.status_code == 422
+
+
+def test_owner_filters_validates_the_trusted_app_id(principal: MemoryPrincipal):
+    """Skipping validation allows the server-side project argument to become an unsafe filter."""
+    with pytest.raises(ValueError, match="app_id"):
+        owner_filters(principal, app_id="../other-project")
 
 
 def test_excessively_nested_client_structure_is_rejected_deterministically():
