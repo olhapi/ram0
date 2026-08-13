@@ -31,12 +31,40 @@ def test_owner_filters_can_be_narrowed_by_a_trusted_app_id(principal: MemoryPrin
     }
 
 
+def test_owner_filters_accepts_app_id_from_filter_transport(principal: MemoryPrincipal):
+    """Rejecting filters.app_id breaks the documented search request shape."""
+    assert owner_filters(principal, extra={"app_id": "github.com-olhapi-ram0"}) == {
+        "user_id": principal.owner_id,
+        "app_id": "github.com-olhapi-ram0",
+    }
+
+
+def test_owner_filters_accepts_agreeing_app_id_transports(principal: MemoryPrincipal):
+    """Equivalent top-level and nested selectors should normalize to one project filter."""
+    assert owner_filters(
+        principal,
+        app_id="github.com-olhapi-ram0",
+        extra={"app_id": "github.com-olhapi-ram0"},
+    ) == {"user_id": principal.owner_id, "app_id": "github.com-olhapi-ram0"}
+
+
+def test_owner_filters_rejects_conflicting_app_id_transports(principal: MemoryPrincipal):
+    """A nested project selector must not override a different trusted top-level selector."""
+    with pytest.raises(HTTPException) as error:
+        owner_filters(
+            principal,
+            app_id="github.com-olhapi-ram0",
+            extra={"app_id": "github.com-olhapi-other"},
+        )
+
+    assert error.value.status_code == 422
+
+
 @pytest.mark.parametrize(
     "value",
     [
         {"user_id": "other"},
         {"AND": [{"agent_id": "a"}, {"user_id": {"in": ["other"]}}]},
-        {"app_id": "other-project"},
         {"AND": [{"agent_id": "a"}, {"app_id": {"in": ["other-project"]}}]},
     ],
 )

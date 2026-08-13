@@ -299,7 +299,7 @@ def test_search_with_app_id_never_loses_owner_filter(route_client):
     response = client.post(
         "/search",
         headers={"Authorization": "Bearer account-jwt"},
-        json={"query": "pgvector", "app_id": "github.com-olhapi-ram0"},
+        json={"query": "pgvector", "filters": {"app_id": "github.com-olhapi-ram0"}},
     )
 
     assert response.status_code == 200, response.text
@@ -331,14 +331,36 @@ def test_list_and_delete_all_compose_app_id_with_owner(route_client):
     )
 
 
-def test_collection_routes_reject_nested_app_id_selectors(route_client):
-    """A nested app filter must not override the trusted top-level project argument."""
+def test_search_accepts_matching_top_level_and_filter_app_id(route_client):
+    """Equivalent transports should compose one trusted project selector beneath the owner."""
     client, memory, _, _ = route_client
 
     response = client.post(
         "/search",
         headers={"Authorization": "Bearer account-jwt"},
-        json={"query": "private", "filters": {"app_id": "github.com-olhapi-other"}},
+        json={
+            "query": "private",
+            "app_id": "github.com-olhapi-ram0",
+            "filters": {"app_id": "github.com-olhapi-ram0"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.search.call_args.kwargs["filters"]["app_id"] == "github.com-olhapi-ram0"
+
+
+def test_search_rejects_conflicting_top_level_and_filter_app_id(route_client):
+    """Conflicting project selectors must not let one transport override the other."""
+    client, memory, _, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={
+            "query": "private",
+            "app_id": "github.com-olhapi-ram0",
+            "filters": {"app_id": "github.com-olhapi-other"},
+        },
     )
 
     assert response.status_code == 422

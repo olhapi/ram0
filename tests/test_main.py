@@ -1,11 +1,13 @@
+# Modified for Ram0; see NOTICE and repository history.
+
 import logging
 import os
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from mem0.configs.base import MemoryConfig
-from mem0.memory.main import Memory, _validate_and_trim_entity_id
+from mem0.memory.main import AsyncMemory, Memory, _validate_and_trim_entity_id
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +53,22 @@ def memory_custom_instance():
             custom_instructions="custom prompt extracting memory in json format",
         )
         return Memory(config)
+
+
+@pytest.fixture
+def async_memory_instance():
+    with (
+        patch("mem0.utils.factory.EmbedderFactory") as mock_embedder,
+        patch("mem0.memory.main.VectorStoreFactory") as mock_vector_store,
+        patch("mem0.utils.factory.LlmFactory") as mock_llm,
+        patch("mem0.memory.telemetry.capture_event"),
+    ):
+        mock_embedder.create.return_value = Mock()
+        mock_vector_store.create.return_value = Mock()
+        mock_vector_store.create.return_value.search.return_value = []
+        mock_llm.create.return_value = Mock()
+
+        yield AsyncMemory(MemoryConfig(version="v1.1"))
 
 
 def test_add(memory_instance):
@@ -103,6 +121,22 @@ def test_app_id_extension_preserves_existing_entity_dimensions(memory_instance):
         [{"role": "user", "content": "Project decision"}],
         expected_scope,
         expected_scope,
+        True,
+        prompt=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_add_accepts_app_id_and_persists_it_in_the_vector_payload(async_memory_instance):
+    """Async add must retain project scope exactly like the synchronous API."""
+    async_memory_instance._add_to_vector_store = AsyncMock(return_value=[])
+
+    await async_memory_instance.add("Project decision", app_id="app-a")
+
+    async_memory_instance._add_to_vector_store.assert_awaited_once_with(
+        [{"role": "user", "content": "Project decision"}],
+        {"app_id": "app-a"},
+        {"app_id": "app-a"},
         True,
         prompt=None,
     )
@@ -195,6 +229,21 @@ def test_search_accepts_app_id_filter_and_preserves_it_in_results(memory_instanc
     assert result["results"][0]["app_id"] == "app-a"
     memory_instance.vector_store.search.assert_called_once_with(
         query="project", vectors=[0.1, 0.2, 0.3], top_k=80, filters={"app_id": "app-a"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_search_accepts_app_id_filter_and_preserves_it_in_results(async_memory_instance):
+    """Async search must filter and project the native application dimension."""
+    async_memory_instance._search_vector_store = AsyncMock(
+        return_value=[{"id": "1", "memory": "Project decision", "app_id": "app-a", "score": 0.9}]
+    )
+
+    result = await async_memory_instance.search("project", filters={"app_id": "app-a"})
+
+    assert result["results"][0]["app_id"] == "app-a"
+    async_memory_instance._search_vector_store.assert_awaited_once_with(
+        "project", {"app_id": "app-a"}, 20, 0.1, explain=False, show_expired=False
     )
 
 
@@ -370,6 +419,22 @@ def test_delete_all_with_app_id_lists_and_deletes_only_matching_records(memory_i
     assert [call.args[0] for call in memory_instance._delete_memory.call_args_list] == ["app-a-1", "app-a-2"]
 
 
+@pytest.mark.asyncio
+async def test_async_delete_all_with_app_id_lists_and_deletes_only_matching_records(async_memory_instance):
+    """Async bulk deletion must never widen an app-scoped delete."""
+    matching = [Mock(id="app-a-1"), Mock(id="app-a-2")]
+    async_memory_instance.vector_store.list = Mock(side_effect=[(matching, None), ([], None)])
+    async_memory_instance._delete_memory = AsyncMock(return_value=None)
+
+    await async_memory_instance.delete_all(app_id="app-a")
+
+    assert async_memory_instance.vector_store.list.call_args_list[0].kwargs == {
+        "filters": {"app_id": "app-a"},
+        "top_k": 1000,
+    }
+    assert [call.args[0] for call in async_memory_instance._delete_memory.await_args_list] == ["app-a-1", "app-a-2"]
+
+
 def test_delete_all_paginates_beyond_vector_store_page_size(memory_instance):
     first_batch = [Mock(id=str(index)) for index in range(1000)]
     second_batch = [Mock(id="1000")]
@@ -409,6 +474,20 @@ def test_get_all_accepts_app_id_filter_and_preserves_it_in_results(memory_instan
 
     assert result["results"][0]["app_id"] == "app-a"
     memory_instance.vector_store.list.assert_called_once_with(filters={"app_id": "app-a"}, top_k=80)
+
+
+@pytest.mark.asyncio
+async def test_async_get_all_accepts_app_id_filter_and_preserves_it_in_results(async_memory_instance):
+    """Async list must filter and project the native application dimension."""
+    async_memory_instance.vector_store.list.return_value = (
+        [Mock(id="1", payload={"data": "Project decision", "app_id": "app-a"})],
+        None,
+    )
+
+    result = await async_memory_instance.get_all(filters={"app_id": "app-a"})
+
+    assert result["results"][0]["app_id"] == "app-a"
+    async_memory_instance.vector_store.list.assert_called_once_with(filters={"app_id": "app-a"}, top_k=80)
 
 
 def test_get_all_hides_expired_memories_by_default(memory_instance):

@@ -61,16 +61,28 @@ def owner_filters(
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     """Combine optional filters with the authenticated account owner and project scope."""
-    reject_client_owner(extra)
+    client_filters = dict(extra) if extra is not None else {}
+    filter_app_id = client_filters.pop("app_id", None)
+    reject_client_owner(client_filters)
+
+    validated_app_id = validate_app_id(app_id) if app_id is not None else None
+    if filter_app_id is not None:
+        try:
+            validated_filter_app_id = validate_app_id(filter_app_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if validated_app_id is not None and validated_filter_app_id != validated_app_id:
+            raise HTTPException(status_code=422, detail="Conflicting app_id selectors.")
+        validated_app_id = validated_filter_app_id
+
     filters: dict[str, object] = {"user_id": principal.owner_id}
     if agent_id is not None:
         filters["agent_id"] = agent_id
     if run_id is not None:
         filters["run_id"] = run_id
-    if app_id is not None:
-        filters["app_id"] = validate_app_id(app_id)
-    if extra is not None:
-        filters.update(extra)
+    if validated_app_id is not None:
+        filters["app_id"] = validated_app_id
+    filters.update(client_filters)
     return filters
 
 
