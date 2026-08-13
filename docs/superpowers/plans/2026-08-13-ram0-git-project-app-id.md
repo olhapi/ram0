@@ -165,6 +165,8 @@ Expected: all named tests pass.
 ### Task 2: Carry `app_id` through REST memories and entities
 
 **Files:**
+- Modify: `mem0/memory/main.py`
+- Modify: `tests/test_main.py`
 - Modify: `server/main.py`
 - Modify: `server/routers/entities.py`
 - Modify: `tests/server/test_memory_routes_authorization.py`
@@ -173,9 +175,33 @@ Expected: all named tests pass.
 
 **Interfaces:**
 - Consumes: `validate_app_id()` and owner-scoped filter composition from Task 1.
-- Produces: REST create/search/list/delete support and account-local `app` entities for MCP/plugin/dashboard consumers.
+- Produces: native Python OSS `app_id` payload/filter support, REST create/search/list/delete support, and account-local `app` entities for MCP/plugin/dashboard consumers.
 
-- [ ] **Step 1: Add failing REST scope matrix tests**
+- [ ] **Step 1: Add failing native Python OSS `app_id` tests**
+
+In `tests/test_main.py`, prove that `Memory.add(..., app_id="app-a")` accepts the identifier and persists it in the vector payload, search/get-all accept `filters={"app_id": "app-a"}`, and `delete_all(app_id="app-a")` lists/deletes only matching records. Also prove the pre-existing `user_id`, `agent_id`, and `run_id` behavior remains unchanged.
+
+- [ ] **Step 2: Run the native tests to prove RED**
+
+```bash
+.venv/bin/pytest tests/test_main.py -k app_id -q
+```
+
+Expected: failures show the Python OSS `Memory` API does not yet accept or carry `app_id`.
+
+- [ ] **Step 3: Implement the narrow Ram0 OSS extension**
+
+Materially modify `mem0/memory/main.py` with the Ram0 notice. Add `app_id` wherever the existing entity dimensions `user_id`, `agent_id`, and `run_id` are validated, normalized, written to vector payloads, accepted by add/search/get-all, and used by delete-all. Do not change hosted-client behavior or TypeScript OSS in this task. Keep the extension pattern-aligned and avoid a new abstraction unless it removes duplicated entity-key handling already touched by the change.
+
+- [ ] **Step 4: Run the native tests to prove GREEN**
+
+```bash
+.venv/bin/pytest tests/test_main.py -k 'app_id or entity or delete_all' -q
+```
+
+Expected: the new `app_id` regressions and existing entity/delete-all tests pass.
+
+- [ ] **Step 5: Add failing REST scope matrix tests**
 
 Add tests using the existing authenticated-client and fake-memory fixtures:
 
@@ -206,7 +232,7 @@ def test_search_with_app_id_never_loses_owner_filter(client, memory, auth_header
 
 Also cover invalid/metadata `app_id` as 422, list/delete-all owner composition, returned payload preservation, and two accounts sharing the same app label.
 
-- [ ] **Step 2: Run named REST tests to prove RED**
+- [ ] **Step 6: Run named REST tests to prove RED**
 
 ```bash
 .venv/bin/pytest tests/server/test_memory_routes_authorization.py tests/server/test_owner_scoped_surfaces.py -q
@@ -214,7 +240,7 @@ Also cover invalid/metadata `app_id` as 422, list/delete-all owner composition, 
 
 Expected: failures show `MemoryCreate` rejects/drops `app_id` and entities omit `app`.
 
-- [ ] **Step 3: Implement REST transport and reserved-field rules**
+- [ ] **Step 7: Implement REST transport and reserved-field rules**
 
 In `server/main.py`:
 
@@ -227,7 +253,7 @@ In `server/main.py`:
 
 Do not change the account-derived `user_id` behavior.
 
-- [ ] **Step 4: Add app entities**
+- [ ] **Step 8: Add app entities**
 
 Change `server/routers/entities.py` to:
 
@@ -242,15 +268,16 @@ TYPE_TO_FIELD: dict[EntityType, str] = {
 
 Test counts/timestamps, owner-only scanning, and deletion calling `delete_all(user_id=principal.owner_id, app_id=entity_id)`.
 
-- [ ] **Step 5: Prove category/update paths preserve the field**
+- [ ] **Step 9: Prove category/update paths preserve the field**
 
 Extend category memory route tests so a vector payload with `app_id` retains it after classification, update, failure, and reclassification preparation. Fix only projection code that drops the field; category catalogs remain account-wide.
 
-- [ ] **Step 6: Run focused REST tests and commit**
+- [ ] **Step 10: Run focused native and REST tests and commit**
 
 ```bash
+.venv/bin/pytest tests/test_main.py -k 'app_id or entity or delete_all' -q
 .venv/bin/pytest tests/server/test_memory_routes_authorization.py tests/server/test_owner_scoped_surfaces.py tests/server/test_category_memory_routes.py -q
-git add server/main.py server/routers/entities.py tests/server/test_memory_routes_authorization.py tests/server/test_owner_scoped_surfaces.py tests/server/test_category_memory_routes.py
+git add mem0/memory/main.py tests/test_main.py server/main.py server/routers/entities.py tests/server/test_memory_routes_authorization.py tests/server/test_owner_scoped_surfaces.py tests/server/test_category_memory_routes.py
 git commit -m "feat(server): persist app-scoped memories"
 ```
 
