@@ -440,7 +440,7 @@ git commit -m "feat(plugin): resolve Git project memory scope"
 
 **Interfaces:**
 - Consumes: `resolve_project_context()` and scope-aware `Ram0Client`.
-- Produces: automatic project writes, project-plus-global recall, explicit global workflow writes/searches, and host-safe context injection.
+- Produces: automatic lifecycle project writes, project-plus-global recall, explicit global workflow writes/searches, and host-safe advisory context for interactive MCP calls.
 
 - [ ] **Step 1: Replace obsolete source-boundary assertions with failing scope assertions**
 

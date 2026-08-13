@@ -2644,8 +2644,13 @@ class TestBuildFilterConditions(unittest.TestCase):
             ]
         })
         self.assertEqual(len(conditions), 1)
-        self.assertTrue(conditions[0].startswith("NOT"))
+        self.assertTrue(conditions[0].startswith("NOT COALESCE"))
         self.assertEqual(params, ["status", "deleted"])
+
+    def test_not_equality_includes_payloads_missing_the_field(self):
+        conditions, params = _build_filter_conditions({"$not": [{"app_id": "archived"}]})
+        self.assertEqual(conditions, ["NOT COALESCE(((payload->>%s = %s)), FALSE)"])
+        self.assertEqual(params, ["app_id", "archived"])
 
     def test_or_with_operators(self):
         conditions, params = _build_filter_conditions({

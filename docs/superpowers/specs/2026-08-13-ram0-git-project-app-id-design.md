@@ -142,11 +142,11 @@ search_memories(query, limit?, scope?, app_id?)
 list_memories(limit?, scope?, app_id?)
 ```
 
-The plugin normally injects the resolved `app_id`; `scope` communicates the intended policy. MCP requests without a usable project ID may perform explicit global reads or writes, but must not silently turn a default project write into a global write.
+Lifecycle hooks resolve cwd per event and the plugin's automatic lifecycle client calls apply that resolved `app_id`; `scope` communicates the intended policy. Standard interactive MCP calls have no trustworthy per-call cwd, so the hook context is advisory and the agent supplies the validated `app_id`. Requests without a usable project ID may perform explicit global reads or writes, but must not silently turn a default project write into a global write.
 
 `get_memory`, `update_memory`, and `forget_memory` continue taking a memory UUID and enforcing authenticated ownership. They do not require the current scope.
 
-`scope` accepts only `project` or `global`; omission selects the default behavior. `app_id` is required for omitted/default reads, omitted/default writes, and explicit project scope. It is rejected for explicit global writes because those must remain unscoped. The plugin injects and enforces `app_id`; direct MCP callers provide it explicitly. `user_id` remains unavailable to every MCP caller.
+`scope` accepts only `project` or `global`; omission selects the default behavior. `app_id` is required for omitted/default reads, omitted/default writes, and explicit project scope. It is rejected for explicit global writes because those must remain unscoped. Automatic lifecycle calls use their per-event resolved ID; interactive plugin and direct MCP callers provide the intended validated ID explicitly because MCP has no per-call cwd. `app_id` is grouping, not ownership, while `user_id` remains unavailable to every MCP caller.
 
 ## Plugin and Hook Behavior
 
@@ -221,7 +221,7 @@ For one account containing global, project A, and project B memories:
 
 - REST add/search/list/update/delete preserve `app_id` correctly.
 - MCP default, project, and global scopes match the contract.
-- Plugin hooks resolve and inject Git project context without sending `user_id` or secrets.
+- Plugin hooks resolve Git project context per event and scope automatic lifecycle calls without sending `user_id` or secrets; interactive MCP receives advisory context and remains agent-selectable.
 - Dashboard renders global and project memories accurately.
 - Backup/restore and ownership migration preserve app-scoped payloads.
 - The disposable PostgreSQL/pgvector real-stack verifier proves cross-account and cross-project isolation.

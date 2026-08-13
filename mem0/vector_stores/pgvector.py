@@ -85,7 +85,7 @@ def _build_filter_conditions(filters):
                     not_groups.append("(" + " AND ".join(sub_conds) + ")")
                     params.extend(sub_params)
             if not_groups:
-                conditions.append("NOT (" + " OR ".join(not_groups) + ")")
+                conditions.append("NOT COALESCE((" + " OR ".join(not_groups) + "), FALSE)")
             continue
 
         if value == "*":
