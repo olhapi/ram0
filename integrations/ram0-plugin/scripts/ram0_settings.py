@@ -8,7 +8,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ram0_config import DEFAULT_RAM0_API_URL, load_config
+from ram0_config import DEFAULT_RAM0_API_URL as DEFAULT_RAM0_API_URL
+from ram0_config import load_config
 
 
 @dataclass(frozen=True)

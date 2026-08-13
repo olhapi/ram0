@@ -12,9 +12,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 RAM0_USER_AGENT = "ram0-plugin/0.1.2"
-from urllib.parse import urlsplit, urlunsplit
 
 
 DEFAULT_RAM0_API_URL = "http://localhost:8888"
