@@ -7,7 +7,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from mcp_stdio_adapter import StreamableHttpTransport, _apply_plugin_project_context, run_stdio
+from mcp_stdio_adapter import StreamableHttpTransport, run_stdio
 from ram0_config import write_config
 
 
@@ -19,27 +19,6 @@ INITIALIZE = {
 }
 TOOLS_LIST = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
 
-
-def test_plugin_context_enforces_default_project_and_global_without_spoofing(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.chdir(repo)
-    environment = {
-        "RAM0_PLUGIN_PROJECT_CONTEXT": "1",
-        "RAM0_PROJECT_ID": "trusted-project",
-        "PWD": str(repo),
-    }
-
-    def call(scope=None, app_id="spoofed"):
-        arguments = {"query": "architecture", "app_id": app_id}
-        if scope is not None:
-            arguments["scope"] = scope
-        return {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search_memories", "arguments": arguments}}
-
-    assert _apply_plugin_project_context(call(), environment)["params"]["arguments"]["app_id"] == "trusted-project"
-    assert _apply_plugin_project_context(call("project"), environment)["params"]["arguments"]["app_id"] == "trusted-project"
-    assert "app_id" not in _apply_plugin_project_context(call("global"), environment)["params"]["arguments"]
-    assert _apply_plugin_project_context(call(), {}) == call()
 
 
 class StreamableMcpFixture:

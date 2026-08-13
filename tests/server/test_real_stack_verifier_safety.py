@@ -3,10 +3,19 @@
 # Modified for Ram0; see NOTICE and repository history.
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from scripts import verify_multi_user_real_stack as verifier
+
+
+def test_mcp_memory_id_parser_matches_remember_and_list_envelopes():
+    remember = SimpleNamespace(structured_content={"ok": True, "result": {"results": [{"id": "one"}]}})
+    listed = SimpleNamespace(structured_content={"ok": True, "memories": {"results": [{"id": "one"}, {"id": "two"}]}})
+
+    assert verifier.mcp_memory_ids(remember, "result") == {"one"}
+    assert verifier.mcp_memory_ids(listed, "memories") == {"one", "two"}
 
 
 def test_verifier_failure_never_touches_repository_history_sentinel(tmp_path, monkeypatch):

@@ -87,6 +87,19 @@ def ids(payload: dict[str, Any]) -> set[str]:
     return {str(item["id"]) for item in payload.get("results", [])}
 
 
+def mcp_memory_ids(result: Any, envelope_key: str) -> set[str]:
+    """Extract IDs from the actual remember/list tool_success envelopes."""
+    payload = result.structured_content
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise AssertionError("MCP tool did not return a successful structured envelope")
+    memories = payload.get(envelope_key)
+    if isinstance(memories, dict):
+        memories = memories.get("results")
+    if not isinstance(memories, list):
+        raise AssertionError("MCP tool returned an unexpected memory envelope")
+    return {str(item["id"]) for item in memories if isinstance(item, dict) and "id" in item}
+
+
 def main() -> None:
     history_workspace = tempfile.TemporaryDirectory(prefix="ram0-task7-real-stack-")
     history_directory = Path(history_workspace.name).resolve()
@@ -426,8 +439,7 @@ def main() -> None:
                             if selected_app is not None:
                                 arguments["app_id"] = selected_app
                             result = await mcp.call_tool("remember", arguments)
-                            payload = result.structured_content or {}
-                            created_ids.update(str(item["id"]) for item in payload.get("memories", []))
+                            created_ids.update(mcp_memory_ids(result, "result"))
                         owner_memories[role] = created_ids
                         reads = {
                             "default": await mcp.call_tool("list_memories", {"limit": 100, "app_id": app_id}),
@@ -437,7 +449,7 @@ def main() -> None:
                             "global": await mcp.call_tool("list_memories", {"limit": 100, "scope": "global"}),
                         }
                         read_ids = {
-                            name: {str(item["id"]) for item in (result.structured_content or {}).get("memories", [])}
+                            name: mcp_memory_ids(result, "memories")
                             for name, result in reads.items()
                         }
                         if len(read_ids["default"] & created_ids) != 2:

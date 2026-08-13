@@ -2,8 +2,7 @@
   "mcpServers": {
     "ram0": {
       "command": "python3",
-      "args": ["${CURSOR_PLUGIN_ROOT}/scripts/mcp_stdio_adapter.py"],
-      "env": {"RAM0_PLUGIN_PROJECT_CONTEXT": "1"}
+      "args": ["${CURSOR_PLUGIN_ROOT}/scripts/mcp_stdio_adapter.py"]
     }
   }
 }
