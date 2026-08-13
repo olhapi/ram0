@@ -59,6 +59,8 @@ def _validate_structured_filters(value: object) -> None:
         current, depth, app_value = pending.pop()
         if depth > _MAX_CLIENT_STRUCTURE_DEPTH:
             raise HTTPException(status_code=422, detail="Request structure is too deeply nested.")
+        if isinstance(current, Mapping) and "user_id" in current:
+            raise HTTPException(status_code=422, detail="user_id is assigned from the authenticated account.")
         if app_value:
             if current is None:
                 continue
@@ -76,8 +78,6 @@ def _validate_structured_filters(value: object) -> None:
                 continue
             raise HTTPException(status_code=422, detail="app_id contains an invalid project identifier.")
         if isinstance(current, Mapping):
-            if "user_id" in current:
-                raise HTTPException(status_code=422, detail="user_id is assigned from the authenticated account.")
             for key, nested in current.items():
                 pending.append((nested, depth + 1, key == "app_id"))
         elif isinstance(current, Sequence) and not isinstance(current, (str, bytes)):

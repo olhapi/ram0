@@ -83,6 +83,26 @@ def test_owner_filters_rejects_invalid_nested_app_values(principal, invalid):
 
 
 @pytest.mark.parametrize(
+    "operand",
+    [
+        {"in": [{"user_id": "victim"}]},
+        {"in": [[{"user_id": "victim"}]]},
+        {"in": ([{"user_id": "victim"}],)},
+    ],
+    ids=["mapping-in-list", "mapping-in-nested-list", "mapping-in-tuple"],
+)
+def test_owner_filters_rejects_user_id_inside_app_operand(principal, operand):
+    """An app operator must never hide a client-authored owner selector from recursive validation."""
+    with pytest.raises(HTTPException) as error:
+        owner_filters(principal, extra={"app_id": operand})
+
+    assert (error.value.status_code, error.value.detail) == (
+        422,
+        "user_id is assigned from the authenticated account.",
+    )
+
+
+@pytest.mark.parametrize(
     "value",
     [
         {"user_id": "other"},
