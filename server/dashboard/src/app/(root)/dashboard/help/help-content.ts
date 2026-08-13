@@ -1,27 +1,20 @@
 export type AgentInstall = {
-  id: "codex" | "claude-code" | "cursor" | "opencode";
+  id: "codex" | "claude-code";
   name: string;
   format: "command" | "json";
-  cliInstall: string;
   persistentSetup: string;
   configVerify: string;
-  directMcpSetup: string;
-  directMcpNote: string;
   pluginInstall: string;
+  pluginUpdate: string;
   pluginNote: string;
   migration: string;
   troubleshooting: readonly string[];
 };
 
-const REPOSITORY = "https://github.com/olhapi/ram0.git";
-const CHECKOUT = "~/ram0-plugins/ram0";
-const ADAPTER = "~/.local/share/ram0/mcp_stdio_adapter.py";
+const MARKETPLACE = "https://github.com/olhapi/ram0-plugins.git";
 
 export const skillInstallCommand =
   "npx skills add https://github.com/olhapi/ram0 --skill ram0-memory";
-
-export const cliInstallCommand = `git clone ${REPOSITORY} ${CHECKOUT}
-python3 ${CHECKOUT}/integrations/ram0-plugin/scripts/install_cli.py`;
 
 function normalizedApiUrl(apiUrl?: string): string | null {
   const candidate = apiUrl?.trim();
@@ -58,7 +51,6 @@ export function agentInstalls(apiUrl?: string): AgentInstall[] {
   const base = normalizedApiUrl(apiUrl);
   if (!base) return [];
   const common = {
-    cliInstall: cliInstallCommand,
     persistentSetup: persistentSetupCommand(base),
     configVerify: "ram0 config test",
     migration:
@@ -77,65 +69,23 @@ export function agentInstalls(apiUrl?: string): AgentInstall[] {
       id: "codex",
       name: "Codex",
       format: "command",
-      directMcpSetup: `codex mcp add ram0 -- python3 ${ADAPTER}`,
-      directMcpNote:
-        "Restart Codex after registering the stdio MCP connection.",
-      pluginInstall: `codex plugin marketplace add ${CHECKOUT}
+      pluginInstall: `codex plugin marketplace add ${MARKETPLACE}
 codex plugin add ram0@ram0-plugins`,
+      pluginUpdate: "codex plugin marketplace upgrade ram0-plugins",
       pluginNote:
-        "Restart Codex, open /hooks, review the bundled lifecycle hooks, and trust them.",
+        "Restart Codex, open /hooks, review the bundled lifecycle hooks, and trust them. The trusted session-start hook installs or refreshes the Ram0 CLI.",
     },
     {
       ...common,
       id: "claude-code",
       name: "Claude Code",
       format: "command",
-      directMcpSetup: `claude mcp add ram0 --scope user -- python3 ${ADAPTER}`,
-      directMcpNote:
-        "Restart Claude Code after registering the stdio MCP connection.",
-      pluginInstall: `claude plugin marketplace add ${REPOSITORY}
+      pluginInstall: `claude plugin marketplace add ${MARKETPLACE}
 claude plugin install ram0@ram0-plugins`,
+      pluginUpdate: `claude plugin marketplace update ram0-plugins
+claude plugin update ram0@ram0-plugins`,
       pluginNote:
-        "Restart Claude Code so the Ram0 MCP registration and lifecycle hooks reload.",
-    },
-    {
-      ...common,
-      id: "cursor",
-      name: "Cursor",
-      format: "json",
-      directMcpSetup: `{
-  "mcpServers": {
-    "ram0": {
-      "command": "python3",
-      "args": ["${ADAPTER}"]
-    }
-  }
-}`,
-      directMcpNote: "Save mcp.json and fully reload Cursor.",
-      pluginInstall: `# Cursor: Settings > Plugins > Add Marketplace
-# Select ${CHECKOUT}/.cursor-plugin/marketplace.json, then install Ram0.`,
-      pluginNote:
-        "Fully reload Cursor so its Ram0 MCP registration and lifecycle hooks start.",
-    },
-    {
-      ...common,
-      id: "opencode",
-      name: "OpenCode",
-      format: "json",
-      directMcpSetup: `{
-  "mcp": {
-    "ram0": {
-      "type": "local",
-      "command": ["python3", "${ADAPTER}"],
-      "enabled": true
-    }
-  }
-}`,
-      directMcpNote: "Save opencode.json and restart OpenCode.",
-      pluginInstall: `cd ${CHECKOUT}/integrations/ram0-plugin/.opencode-plugin
-bun install --frozen-lockfile && bun run build
-opencode plugin "file://$PWD" --global`,
-      pluginNote: "Restart OpenCode after registering the local Ram0 plugin.",
+        "Restart Claude Code and approve the bundled lifecycle hooks when prompted. The trusted session-start hook installs or refreshes the Ram0 CLI.",
     },
   ];
 }

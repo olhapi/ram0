@@ -50,8 +50,8 @@ export default function HelpPage() {
         <CardHeader>
           <CardTitle>Connect Agents</CardTitle>
           <CardDescription>
-            Install the local CLI once, then store the URL and API key
-            permanently with protected file permissions.
+            Install Ram0 from its public marketplace, then store the URL and API
+            key permanently with protected file permissions.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -79,45 +79,10 @@ export default function HelpPage() {
                 <TabsContent key={install.id} value={install.id}>
                   <div className="space-y-5 rounded-lg border border-memBorder-primary p-4">
                     <section className="space-y-3">
-                      <h2 className="font-medium">Permanent Ram0 setup</h2>
+                      <h2 className="font-medium">Install the Ram0 plugin</h2>
                       <p className="text-sm text-onSurface-default-secondary">
-                        Review and clone the checkout, install the CLI, then run
-                        setup. It prompts for the API key without echoing it and
-                        stores only the URL and key in{" "}
-                        <code>~/.config/ram0/config.json</code> with mode 0600.
-                      </p>
-                      <Command
-                        label={`Copy ${install.name} Ram0 CLI installation`}
-                        value={install.cliInstall}
-                      />
-                      <Command
-                        label={`Copy ${install.name} persistent Ram0 setup`}
-                        value={install.persistentSetup}
-                      />
-                      <Command
-                        label={`Copy ${install.name} Ram0 configuration test`}
-                        value={install.configVerify}
-                      />
-                    </section>
-
-                    <section className="space-y-3 border-t border-memBorder-primary pt-5">
-                      <h2 className="font-medium">Choose one connection</h2>
-                      <p className="text-sm text-onSurface-default-secondary">
-                        <strong>Direct MCP</strong> provides the six tools
-                        without lifecycle automation. Remove an existing
-                        same-named remote connection first.
-                      </p>
-                      <Command
-                        label={`Copy ${install.name} direct MCP setup`}
-                        value={install.directMcpSetup}
-                      />
-                      <p className="text-sm text-onSurface-default-tertiary">
-                        {install.directMcpNote}
-                      </p>
-                      <p className="text-sm text-onSurface-default-secondary">
-                        <strong>Full automation plugin</strong> adds retrieval
-                        and durable-capture hooks. Use this instead of direct
-                        MCP.
+                        Install from the public marketplace. No Ram0 source
+                        checkout is required.
                       </p>
                       <Command
                         label={`Copy ${install.name} Ram0 plugin installation`}
@@ -126,6 +91,37 @@ export default function HelpPage() {
                       <p className="text-sm text-onSurface-default-tertiary">
                         {install.pluginNote}
                       </p>
+                    </section>
+
+                    <section className="space-y-3 border-t border-memBorder-primary pt-5">
+                      <h2 className="font-medium">Update an existing plugin</h2>
+                      <p className="text-sm text-onSurface-default-secondary">
+                        Refresh the installed marketplace plugin, then restart
+                        your client. Your persistent Ram0 configuration is
+                        preserved.
+                      </p>
+                      <Command
+                        label={`Copy ${install.name} Ram0 plugin update`}
+                        value={install.pluginUpdate}
+                      />
+                    </section>
+
+                    <section className="space-y-3 border-t border-memBorder-primary pt-5">
+                      <h2 className="font-medium">Permanent Ram0 setup</h2>
+                      <p className="text-sm text-onSurface-default-secondary">
+                        After restarting the client, run setup. It prompts for
+                        the API key without echoing it and stores only the URL
+                        and key in <code>~/.config/ram0/config.json</code> with
+                        mode 0600.
+                      </p>
+                      <Command
+                        label={`Copy ${install.name} persistent Ram0 setup`}
+                        value={install.persistentSetup}
+                      />
+                      <Command
+                        label={`Copy ${install.name} Ram0 configuration test`}
+                        value={install.configVerify}
+                      />
                     </section>
 
                     <section className="space-y-2 border-t border-memBorder-primary pt-5">
@@ -198,7 +194,7 @@ export default function HelpPage() {
             className="text-sm underline underline-offset-4"
             href="https://docs.mem0.ai/open-source/ram0-mcp"
           >
-            Ram0 MCP guide
+            Mem0 MCP guide
           </a>
         </CardContent>
       </Card>
