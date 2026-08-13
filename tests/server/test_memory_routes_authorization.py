@@ -218,6 +218,45 @@ def test_add_derives_owner_from_the_authenticated_principal(route_client, header
     assert "00000000-0000-0000-0000-000000000099" not in memory.add.call_args.kwargs.values()
 
 
+def test_create_passes_valid_app_id_beneath_derived_owner(route_client):
+    """Dropping a trusted app_id would store a project decision in the account-wide scope."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.post(
+        "/memories",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={
+            "messages": [{"role": "user", "content": "Decision: Use pgvector."}],
+            "app_id": "github.com-olhapi-ram0",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.add.call_args.kwargs["user_id"] == str(jwt_account.id)
+    assert memory.add.call_args.kwargs["app_id"] == "github.com-olhapi-ram0"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"app_id": "../checkout"},
+        {"metadata": {"app_id": "github.com-olhapi-other"}},
+    ],
+)
+def test_create_rejects_invalid_or_metadata_app_id(route_client, body):
+    """Accepting an invalid or metadata app selector would bypass the trusted top-level scope."""
+    client, memory, _, _ = route_client
+
+    response = client.post(
+        "/memories",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={"messages": [{"role": "user", "content": "private"}], **body},
+    )
+
+    assert response.status_code == 422
+    memory.add.assert_not_called()
+
+
 def test_list_and_search_are_scoped_to_the_authenticated_owner(route_client):
     """Removing the owner filter exposes memories belonging to every account."""
     client, memory, jwt_account, _ = route_client
@@ -251,6 +290,91 @@ def test_list_and_search_are_scoped_to_the_authenticated_owner(route_client):
         "run_id": "run-1",
         "categories": {"in": ["work"]},
     }
+
+
+def test_search_with_app_id_never_loses_owner_filter(route_client):
+    """Applying app scope without the owner would expose another account using the same app label."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={"query": "pgvector", "app_id": "github.com-olhapi-ram0"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.search.call_args.kwargs["filters"] == {
+        "user_id": str(jwt_account.id),
+        "app_id": "github.com-olhapi-ram0",
+    }
+
+
+def test_list_and_delete_all_compose_app_id_with_owner(route_client):
+    """An app-only list or delete would cross account boundaries for shared project labels."""
+    client, memory, jwt_account, _ = route_client
+    headers = {"Authorization": "Bearer account-jwt"}
+
+    listed = client.get("/memories", headers=headers, params={"app_id": "github.com-olhapi-ram0"})
+    deleted = client.delete("/memories", headers=headers, params={"app_id": "github.com-olhapi-ram0"})
+
+    assert listed.status_code == 200, listed.text
+    assert deleted.status_code == 200, deleted.text
+    assert memory.get_all.call_args.kwargs["filters"] == {
+        "user_id": str(jwt_account.id),
+        "app_id": "github.com-olhapi-ram0",
+    }
+    memory.delete_all.assert_called_once_with(
+        user_id=str(jwt_account.id),
+        agent_id=None,
+        run_id=None,
+        app_id="github.com-olhapi-ram0",
+    )
+
+
+def test_collection_routes_reject_nested_app_id_selectors(route_client):
+    """A nested app filter must not override the trusted top-level project argument."""
+    client, memory, _, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={"query": "private", "filters": {"app_id": "github.com-olhapi-other"}},
+    )
+
+    assert response.status_code == 422
+    memory.search.assert_not_called()
+
+
+def test_app_id_is_preserved_in_collection_responses(route_client):
+    """Dropping app_id from responses would prevent clients from distinguishing project scope."""
+    client, memory, _, _ = route_client
+    memory.get_all.return_value = {
+        "results": [{"id": "memory-id", "memory": "private", "app_id": "github.com-olhapi-ram0"}]
+    }
+    memory.search.return_value = memory.get_all.return_value
+    headers = {"Authorization": "Bearer account-jwt"}
+
+    listed = client.get("/memories", headers=headers)
+    searched = client.post("/search", headers=headers, json={"query": "private"})
+
+    assert listed.json()["results"][0]["app_id"] == "github.com-olhapi-ram0"
+    assert searched.json()["results"][0]["app_id"] == "github.com-olhapi-ram0"
+
+
+def test_two_accounts_can_share_an_app_label_without_sharing_owner_scope(route_client):
+    """The same Git project label is account-local and must retain a distinct owner filter."""
+    client, memory, jwt_account, api_key_account = route_client
+    body = {"query": "private", "app_id": "github.com-olhapi-ram0"}
+
+    first = client.post("/search", headers={"Authorization": "Bearer account-jwt"}, json=body)
+    second = client.post("/search", headers={"X-API-Key": "account-api-key"}, json=body)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert [call.kwargs["filters"] for call in memory.search.call_args_list] == [
+        {"user_id": str(jwt_account.id), "app_id": "github.com-olhapi-ram0"},
+        {"user_id": str(api_key_account.id), "app_id": "github.com-olhapi-ram0"},
+    ]
 
 
 @pytest.mark.parametrize(

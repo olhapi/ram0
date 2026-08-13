@@ -1,3 +1,5 @@
+# Modified for Ram0; see NOTICE and repository history.
+
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, Literal, Optional
@@ -13,8 +15,12 @@ router = APIRouter(prefix="/entities", tags=["entities"])
 
 SCAN_LIMIT = 10_000
 
-EntityType = Literal["agent", "run"]
-TYPE_TO_FIELD: dict[EntityType, str] = {"agent": "agent_id", "run": "run_id"}
+EntityType = Literal["app", "agent", "run"]
+TYPE_TO_FIELD: dict[EntityType, str] = {
+    "app": "app_id",
+    "agent": "agent_id",
+    "run": "run_id",
+}
 
 
 class Entity(BaseModel):

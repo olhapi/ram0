@@ -66,6 +66,48 @@ def test_add(memory_instance):
     )
 
 
+def test_add_accepts_app_id_and_persists_it_in_the_vector_payload(memory_instance):
+    """Dropping app_id before storage would silently turn a project memory into a global memory."""
+    memory_instance._add_to_vector_store = Mock(return_value=[])
+
+    memory_instance.add("Project decision", app_id="app-a")
+
+    memory_instance._add_to_vector_store.assert_called_once_with(
+        [{"role": "user", "content": "Project decision"}],
+        {"app_id": "app-a"},
+        {"app_id": "app-a"},
+        True,
+        prompt=None,
+    )
+
+
+def test_app_id_extension_preserves_existing_entity_dimensions(memory_instance):
+    """Adding app scope must not replace the existing user, agent, or run scope dimensions."""
+    memory_instance._add_to_vector_store = Mock(return_value=[])
+
+    memory_instance.add(
+        "Project decision",
+        user_id="user-a",
+        agent_id="agent-a",
+        run_id="run-a",
+        app_id="app-a",
+    )
+
+    expected_scope = {
+        "user_id": "user-a",
+        "agent_id": "agent-a",
+        "run_id": "run-a",
+        "app_id": "app-a",
+    }
+    memory_instance._add_to_vector_store.assert_called_once_with(
+        [{"role": "user", "content": "Project decision"}],
+        expected_scope,
+        expected_scope,
+        True,
+        prompt=None,
+    )
+
+
 def test_add_stores_expiration_date(memory_instance):
     memory_instance._add_to_vector_store = Mock(return_value=[{"memory": "Test memory", "event": "ADD"}])
 
@@ -133,6 +175,26 @@ def test_search(memory_instance):
     # Hybrid pipeline over-fetches: max(20*4, 60) = 80 (top_k default is now 20)
     memory_instance.vector_store.search.assert_called_once_with(
         query="test query", vectors=[0.1, 0.2, 0.3], top_k=80, filters={"user_id": "test_user"}
+    )
+
+
+def test_search_accepts_app_id_filter_and_preserves_it_in_results(memory_instance):
+    """Ignoring app_id would search every project and hide the scope on returned memories."""
+    memory_instance.vector_store.search.return_value = [
+        Mock(id="1", payload={"data": "Project decision", "app_id": "app-a"}, score=0.9)
+    ]
+    memory_instance.vector_store.keyword_search.return_value = None
+    memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
+
+    with (
+        patch("mem0.memory.main.lemmatize_for_bm25", return_value="project"),
+        patch("mem0.memory.main.extract_entities", return_value=[]),
+    ):
+        result = memory_instance.search("project", filters={"app_id": "app-a"})
+
+    assert result["results"][0]["app_id"] == "app-a"
+    memory_instance.vector_store.search.assert_called_once_with(
+        query="project", vectors=[0.1, 0.2, 0.3], top_k=80, filters={"app_id": "app-a"}
     )
 
 
@@ -296,6 +358,18 @@ def test_delete_all(memory_instance):
     assert result["message"] == "Memories deleted successfully!"
 
 
+def test_delete_all_with_app_id_lists_and_deletes_only_matching_records(memory_instance):
+    """Omitting app_id from delete filters would erase memories in unrelated projects."""
+    matching = [Mock(id="app-a-1"), Mock(id="app-a-2")]
+    memory_instance.vector_store.list = Mock(side_effect=[(matching, None), ([], None)])
+    memory_instance._delete_memory = Mock()
+
+    memory_instance.delete_all(app_id="app-a")
+
+    memory_instance.vector_store.list.assert_called_with(filters={"app_id": "app-a"}, top_k=1000)
+    assert [call.args[0] for call in memory_instance._delete_memory.call_args_list] == ["app-a-1", "app-a-2"]
+
+
 def test_delete_all_paginates_beyond_vector_store_page_size(memory_instance):
     first_batch = [Mock(id=str(index)) for index in range(1000)]
     second_batch = [Mock(id="1000")]
@@ -322,6 +396,19 @@ def test_get_all(memory_instance):
     assert result["results"][0]["id"] == "1"
     assert result["results"][0]["memory"] == "Memory 1"
     assert result["results"][0]["user_id"] == "test_user"
+
+
+def test_get_all_accepts_app_id_filter_and_preserves_it_in_results(memory_instance):
+    """Ignoring app_id would list every project and hide the scope on returned memories."""
+    memory_instance.vector_store.list.return_value = (
+        [Mock(id="1", payload={"data": "Project decision", "app_id": "app-a"})],
+        None,
+    )
+
+    result = memory_instance.get_all(filters={"app_id": "app-a"})
+
+    assert result["results"][0]["app_id"] == "app-a"
+    memory_instance.vector_store.list.assert_called_once_with(filters={"app_id": "app-a"}, top_k=80)
 
 
 def test_get_all_hides_expired_memories_by_default(memory_instance):

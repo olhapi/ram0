@@ -65,8 +65,24 @@ def entity_client(monkeypatch):
         [
             SimpleNamespace(
                 id="memory-a",
-                payload={"user_id": OWNER_A, "agent_id": "agent-a", "run_id": "run-a"},
-            )
+                payload={
+                    "user_id": OWNER_A,
+                    "app_id": "github.com-olhapi-ram0",
+                    "agent_id": "agent-a",
+                    "run_id": "run-a",
+                    "created_at": "2026-08-13T08:00:00Z",
+                    "updated_at": "2026-08-13T09:00:00Z",
+                },
+            ),
+            SimpleNamespace(
+                id="memory-b",
+                payload={
+                    "user_id": OWNER_A,
+                    "app_id": "github.com-olhapi-ram0",
+                    "created_at": "2026-08-13T07:00:00Z",
+                    "updated_at": "2026-08-13T10:00:00Z",
+                },
+            ),
         ]
     ]
     memory = SimpleNamespace(vector_store=vector_store, delete_all=MagicMock(name="delete_all"))
@@ -91,12 +107,31 @@ def test_entities_scan_only_the_principal_owner(entity_client):
 
     assert response.status_code == 200
     assert memory.vector_store.list.call_args.kwargs["filters"] == {"user_id": OWNER_A}
-    assert {item["type"] for item in response.json()} == {"agent", "run"}
+    assert {item["type"] for item in response.json()} == {"app", "agent", "run"}
 
 
-@pytest.mark.parametrize(("entity_type", "field"), [("agent", "agent_id"), ("run", "run_id")])
+def test_app_entity_aggregates_account_local_count_and_timestamps(entity_client):
+    """Omitting app aggregation would hide project counts and timestamp bounds from clients."""
+    client, _ = entity_client
+
+    response = client.get("/entities")
+
+    app_entity = next(item for item in response.json() if item["type"] == "app")
+    assert app_entity == {
+        "id": "github.com-olhapi-ram0",
+        "type": "app",
+        "total_memories": 2,
+        "created_at": "2026-08-13T07:00:00Z",
+        "updated_at": "2026-08-13T10:00:00Z",
+    }
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "field"),
+    [("app", "app_id"), ("agent", "agent_id"), ("run", "run_id")],
+)
 def test_entity_delete_combines_shared_identifier_with_the_principal_owner(entity_client, entity_type, field):
-    """A shared agent/run ID must delete only the authenticated owner's memories."""
+    """A shared app/agent/run ID must delete only the authenticated owner's memories."""
     client, memory = entity_client
 
     response = client.delete(f"/entities/{entity_type}/shared-id")

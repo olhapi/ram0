@@ -1,3 +1,5 @@
+# Modified for Ram0; see NOTICE and repository history.
+
 import asyncio
 import logging
 import os
@@ -7,6 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 import telemetry
+from app_scope import validate_app_id
 from auth import ADMIN_API_KEY, AUTH_DISABLED, JWT_SECRET, require_admin, verify_auth
 from category_models import CATEGORY_ORIGIN_KEY, parse_per_call_categories, promote_category_fields
 from category_runtime import (
@@ -261,6 +264,7 @@ class MemoryCreate(BaseModel):
     user_id: Optional[str] = None
     agent_id: Optional[str] = None
     run_id: Optional[str] = None
+    app_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     expiration_date: Optional[str] = Field(None, description="Expiration date in YYYY-MM-DD format.")
     infer: Optional[bool] = Field(None, description="Whether to extract facts from messages. Defaults to True.")
@@ -283,6 +287,7 @@ class SearchRequest(BaseModel):
     user_id: Optional[str] = Field(None, description="Deprecated: pass inside `filters` instead.", deprecated=True)
     run_id: Optional[str] = Field(None, description="Deprecated: pass inside `filters` instead.", deprecated=True)
     agent_id: Optional[str] = Field(None, description="Deprecated: pass inside `filters` instead.", deprecated=True)
+    app_id: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
     top_k: Optional[int] = Field(None, description="Maximum number of results to return.")
     threshold: Optional[float] = Field(None, description="Minimum similarity score for results.")
@@ -300,6 +305,16 @@ def _client_error(exc: Exception) -> HTTPException:
     detail = str(exc)
     status_code = 404 if isinstance(exc, ValueError) and "not found" in detail.lower() else 400
     return HTTPException(status_code=status_code, detail=detail)
+
+
+def _validated_app_id(value: Optional[str]) -> Optional[str]:
+    """Validate the trusted top-level project selector as a client input error."""
+    if value is None:
+        return None
+    try:
+        return validate_app_id(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _redact_config(value: Any, key: str | None = None) -> Any:
@@ -452,6 +467,7 @@ def add_memory(memory_create: MemoryCreate, principal: MemoryPrincipal = Depends
     """Store new memories."""
     reject_client_owner({"user_id": memory_create.user_id} if memory_create.user_id is not None else None)
     reject_client_owner(memory_create.metadata)
+    app_id = _validated_app_id(memory_create.app_id)
 
     request_catalog = None
     if memory_create.custom_categories is not None:
@@ -466,6 +482,8 @@ def add_memory(memory_create: MemoryCreate, principal: MemoryPrincipal = Depends
         if value is not None and key not in {"messages", "custom_categories", "user_id"}
     }
     params["user_id"] = principal.owner_id
+    if app_id is not None:
+        params["app_id"] = app_id
     origin_token = str(uuid.uuid4())
     params["metadata"] = {**(params.get("metadata") or {}), CATEGORY_ORIGIN_KEY: origin_token}
     try:
@@ -500,6 +518,7 @@ _RESERVED_PAYLOAD_KEYS = {
     "user_id",
     "agent_id",
     "run_id",
+    "app_id",
     "hash",
     "created_at",
     "updated_at",
@@ -519,6 +538,7 @@ def _serialize_memory(row: Any) -> Dict[str, Any]:
         "user_id": payload.get("user_id"),
         "agent_id": payload.get("agent_id"),
         "run_id": payload.get("run_id"),
+        "app_id": payload.get("app_id"),
         "hash": payload.get("hash"),
         "expiration_date": payload.get("expiration_date"),
         "categories": payload.get("categories"),
@@ -534,6 +554,7 @@ def get_all_memories(
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    app_id: Optional[str] = None,
     categories: Optional[List[str]] = Query(None),
     top_k: Optional[int] = Query(None, ge=0, le=ALL_MEMORIES_LIMIT),
     show_expired: bool = Query(False),
@@ -545,7 +566,13 @@ def get_all_memories(
         extra = {}
         if categories is not None:
             extra["categories"] = {"in": categories}
-        filters = owner_filters(principal, agent_id=agent_id, run_id=run_id, extra=extra)
+        filters = owner_filters(
+            principal,
+            agent_id=agent_id,
+            run_id=run_id,
+            app_id=_validated_app_id(app_id),
+            extra=extra,
+        )
         params = {"filters": filters}
         if top_k is not None:
             params["top_k"] = top_k
@@ -579,6 +606,7 @@ def search_memories(search_req: SearchRequest, principal: MemoryPrincipal = Depe
             principal,
             agent_id=search_req.agent_id,
             run_id=search_req.run_id,
+            app_id=_validated_app_id(search_req.app_id),
             extra=search_req.filters or {},
         )
         params = {}
@@ -673,12 +701,20 @@ def delete_all_memories(
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    app_id: Optional[str] = None,
     principal: MemoryPrincipal = Depends(require_memory_principal),
 ):
-    """Delete this account's memories, optionally scoped by agent or run."""
+    """Delete this account's memories, optionally scoped by app, agent, or run."""
     try:
         reject_client_owner({"user_id": user_id} if user_id is not None else None)
-        get_memory_instance().delete_all(user_id=principal.owner_id, agent_id=agent_id, run_id=run_id)
+        params = {
+            "user_id": principal.owner_id,
+            "agent_id": agent_id,
+            "run_id": run_id,
+        }
+        if (validated_app_id := _validated_app_id(app_id)) is not None:
+            params["app_id"] = validated_app_id
+        get_memory_instance().delete_all(**params)
         return MessageResponse(message="All relevant memories deleted")
     except HTTPException:
         raise
