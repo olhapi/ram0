@@ -34,7 +34,7 @@ def _assert_no_owner_or_lifecycle_fields(value: Any) -> None:
             lambda client: client.search("architecture", limit=7, app_id="app-a", scope="project"),
             "POST",
             "/search",
-            {"query": "architecture", "top_k": 7, "scope": "project", "app_id": "app-a"},
+            {"query": "architecture", "top_k": 7, "filters": {"app_id": "app-a"}},
         ),
         (
             lambda client: client.add("Prefer tests", {"project": "ram0"}, app_id="app-a"),
@@ -60,7 +60,7 @@ def _assert_no_owner_or_lifecycle_fields(value: Any) -> None:
         (
             lambda client: client.list(limit=3, app_id="app-a", scope="project"),
             "GET",
-            "/memories?top_k=3&scope=project&app_id=app-a",
+            "/memories?top_k=3&filters=%7B%22app_id%22%3A%22app-a%22%7D",
             None,
         ),
         (lambda client: client.get("memory-1"), "GET", "/memories/memory-1", None),
@@ -105,14 +105,14 @@ def test_operations_send_only_bearer_auth_and_safe_payloads(
 
 
 @pytest.mark.parametrize(
-    ("scope", "expected_context"),
+    ("scope", "expected_filters"),
     [
-        (None, {"app_id": "app-a"}),
-        ("project", {"scope": "project", "app_id": "app-a"}),
-        ("global", {"scope": "global"}),
+        (None, {"OR": [{"app_id": "app-a"}, {"app_id": None}]}),
+        ("project", {"app_id": "app-a"}),
+        ("global", None),
     ],
 )
-def test_search_scope_matrix_sends_only_trusted_scope_intent(ram0_server, scope, expected_context):
+def test_search_scope_matrix_sends_exact_mem0_style_app_filter(ram0_server, scope, expected_filters):
     """Breaks if a read widens or narrows the selected project/global scope."""
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
@@ -122,28 +122,128 @@ def test_search_scope_matrix_sends_only_trusted_scope_intent(ram0_server, scope,
     assert payload == {
         "query": "architecture",
         "top_k": 10,
-        **expected_context,
+        **({"filters": expected_filters} if expected_filters is not None else {}),
     }
 
 
 @pytest.mark.parametrize(
-    ("scope", "expected_query"),
+    ("scope", "expected_filters"),
     [
-        (
-            None,
-            {"top_k": ["100"], "app_id": ["app-a"]},
-        ),
-        ("project", {"top_k": ["100"], "scope": ["project"], "app_id": ["app-a"]}),
-        ("global", {"top_k": ["100"], "scope": ["global"]}),
+        (None, {"OR": [{"app_id": "app-a"}, {"app_id": None}]}),
+        ("project", {"app_id": "app-a"}),
+        ("global", None),
     ],
 )
-def test_list_scope_matrix_sends_only_the_selected_filter(ram0_server, scope, expected_query):
+def test_list_scope_matrix_sends_exact_json_encoded_mem0_style_app_filter(ram0_server, scope, expected_filters):
     """Breaks if list scope leaks another project or omits global memories from the default."""
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
     client.list(app_id="app-a", scope=scope)
 
-    assert parse_qs(urlsplit(ram0_server.requests[0]["path"]).query) == expected_query
+    query = parse_qs(urlsplit(ram0_server.requests[0]["path"]).query)
+    assert query["top_k"] == ["100"]
+    if expected_filters is None:
+        assert "filters" not in query
+    else:
+        assert json.loads(query["filters"][0]) == expected_filters
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+@pytest.mark.parametrize(
+    "caller_filters",
+    [
+        {"OR": [{"app_id": "project-b"}, {"app_id": None}]},
+        {"AND": [{"NOT": [{"app_id": {"in": ["archived-a", "archived-b"]}}]}]},
+        {"categories": {"in": ["architecture"]}},
+        {"AND": [{"run_id": "run-1"}, {"agent_id": "agent-1"}]},
+    ],
+)
+def test_read_merges_structured_caller_filters_with_project_scope_using_and(
+    ram0_server, operation, caller_filters
+):
+    """Breaks if caller filters override the current scope or lose hosted-style boolean predicates."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    getattr(client, operation)(*arguments, app_id="app-a", scope="project", filters=caller_filters)
+
+    request = ram0_server.requests[0]
+    if operation == "search":
+        sent_filters = _payload(request)["filters"]
+    else:
+        sent_filters = json.loads(parse_qs(urlsplit(request["path"]).query)["filters"][0])
+    assert sent_filters == {"AND": [{"app_id": "app-a"}, caller_filters]}
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+def test_global_read_preserves_non_identity_caller_filter_without_app_filter(ram0_server, operation):
+    """Breaks if global scope discards caller filters or silently adds a project predicate."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+    caller_filters = {"categories": {"in": ["architecture"]}}
+
+    getattr(client, operation)(*arguments, app_id="app-a", scope="global", filters=caller_filters)
+
+    request = ram0_server.requests[0]
+    if operation == "search":
+        sent_filters = _payload(request)["filters"]
+    else:
+        sent_filters = json.loads(parse_qs(urlsplit(request["path"]).query)["filters"][0])
+    assert sent_filters == caller_filters
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+@pytest.mark.parametrize(
+    "caller_filters",
+    [
+        {"user_id": "victim"},
+        {"OR": [{"app_id": "safe"}, {"NOT": [{"user_id": "victim"}]}]},
+    ],
+)
+def test_read_rejects_hidden_user_id_before_network(ram0_server, operation, caller_filters):
+    """Breaks if a nested caller owner can cross the account-derived authorization seam."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    with pytest.raises(ValueError, match="user_id"):
+        getattr(client, operation)(*arguments, app_id="app-a", filters=caller_filters)
+
+    assert ram0_server.requests == []
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+def test_read_rejects_hidden_credentials_before_network(ram0_server, operation):
+    """Breaks if adding structured filters creates a route for secrets to enter request payloads."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    with pytest.raises(ValueError, match="reserved"):
+        getattr(client, operation)(
+            *arguments,
+            app_id="app-a",
+            filters={"OR": [{"app_id": "safe"}, {"api_token": "secret"}]},
+        )
+
+    assert ram0_server.requests == []
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+@pytest.mark.parametrize(
+    "caller_filters",
+    [
+        {"OR": [{"app_id": "../checkout"}]},
+        {"NOT": [{"app_id": {"in": ["valid", "has spaces"]}}]},
+    ],
+)
+def test_read_rejects_invalid_nested_app_id_before_network(ram0_server, operation, caller_filters):
+    """Breaks if malformed app predicates bypass the normalized project contract."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    with pytest.raises(ValueError, match="app_id"):
+        getattr(client, operation)(*arguments, app_id="app-a", filters=caller_filters)
+
+    assert ram0_server.requests == []
 
 
 @pytest.mark.parametrize(

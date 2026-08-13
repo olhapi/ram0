@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -12,8 +13,10 @@ import stat
 import subprocess
 import tempfile
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import urlsplit
 
 from ram0_config import plugin_state_directory
@@ -60,22 +63,22 @@ def resolve_project_context(
     branch = git.branch if git is not None else "unknown"
     aliases = _alias_keys(git, context_root)
     mapping_path = (state_dir or plugin_state_directory(source)) / _MAPPING_NAME
-    mapping = _read_mapping(mapping_path)
 
-    explicit = source.get("RAM0_PROJECT_ID", "").strip()
-    if explicit:
-        app_id = _normalize_app_id(explicit)
-    else:
-        app_id = _mapped_app_id(mapping, aliases)
-        if app_id is None and git is not None and git.remote is not None:
-            canonical_remote = _canonical_remote(git.remote)
-            if canonical_remote is not None:
-                app_id = _normalize_app_id(canonical_remote.replace("/", "-"))
-        if app_id is None:
-            fallback_name = _repository_fallback_name(git) if git is not None else context_root.name
-            app_id = _normalize_app_id(fallback_name)
-
-    _save_mapping(mapping_path, mapping, aliases, app_id)
+    with _mapping_lock(mapping_path):
+        mapping = _read_mapping(mapping_path)
+        explicit = source.get("RAM0_PROJECT_ID", "").strip()
+        if explicit:
+            app_id = _normalize_app_id(explicit)
+        else:
+            app_id = _mapped_app_id(mapping, aliases)
+            if app_id is None and git is not None and git.remote is not None:
+                canonical_remote = _canonical_remote(git.remote)
+                if canonical_remote is not None:
+                    app_id = _normalize_app_id(canonical_remote.replace("/", "-"))
+            if app_id is None:
+                fallback_name = _repository_fallback_name(git) if git is not None else context_root.name
+                app_id = _normalize_app_id(fallback_name)
+        _save_mapping(mapping_path, mapping, aliases, app_id)
     return ProjectContext(app_id=app_id, root=context_root, branch=branch)
 
 
@@ -213,6 +216,37 @@ def _assert_private_state_directory(path: Path) -> None:
         raise ProjectScopeError("Ram0 project state must be a regular directory.")
     if os.name == "posix" and stat.S_IMODE(details.st_mode) & 0o077:
         raise ProjectScopeError("Ram0 project state permissions are unsafe; use mode 0700.")
+
+
+@contextmanager
+def _mapping_lock(path: Path) -> Iterator[None]:
+    directory = path.parent
+    lock_path = directory / f".{path.name}.lock"
+    descriptor = -1
+    try:
+        directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+        _assert_private_state_directory(directory)
+        flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(lock_path, flags, 0o600)
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode):
+            raise ProjectScopeError("Ram0 project mapping lock must be a regular file.")
+        if os.name == "posix" and stat.S_IMODE(details.st_mode) & 0o077:
+            raise ProjectScopeError("Ram0 project mapping lock permissions are unsafe; use mode 0600.")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    except ProjectScopeError:
+        raise
+    except OSError:
+        raise ProjectScopeError("Unable to lock Ram0 project mapping.") from None
+    finally:
+        if descriptor >= 0:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
 
 
 def _read_mapping(path: Path) -> dict[str, str]:

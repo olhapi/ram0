@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import stat
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -107,7 +110,7 @@ def test_explicit_project_id_has_priority_and_is_saved_as_opaque_private_aliases
     assert remote not in raw
     assert "SecretOwner" not in raw
     assert set(json.loads(raw).values()) == {"explicit-project"}
-    assert list(state_dir.glob(".project_map.json.*")) == []
+    assert [path for path in state_dir.glob(".project_map.json.*") if path.name != ".project_map.json.lock"] == []
 
 
 def test_saved_mapping_beats_remote_derivation_and_survives_a_moved_clone(tmp_path, monkeypatch):
@@ -219,3 +222,70 @@ def test_insecure_or_symlinked_mapping_file_is_rejected_without_following_it(tmp
     with pytest.raises(ProjectScopeError, match="regular file"):
         resolve_project_context(repo, state_dir=state_dir)
     assert target.read_text(encoding="utf-8") == '{}\n'
+
+
+def test_concurrent_mapping_writers_wait_re_read_and_merge_without_exposing_context(tmp_path):
+    """Breaks if concurrent resolver processes overwrite another repository alias with stale state."""
+    first = git_repo(tmp_path / "sensitive-first", "git@private.example:Owner/First.git")
+    second = git_repo(tmp_path / "sensitive-second", "git@private.example:Owner/Second.git")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(mode=0o700)
+    lock_path = state_dir / ".project_map.json.lock"
+    lock_path.touch(mode=0o600)
+    scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
+    command = [
+        sys.executable,
+        "-c",
+        (
+            "import sys; from pathlib import Path; "
+            "from project_scope import resolve_project_context; "
+            "Path(sys.argv[3]).touch(); "
+            "resolve_project_context(Path(sys.argv[1]), state_dir=Path(sys.argv[2])); "
+            "Path(sys.argv[4]).touch()"
+        ),
+    ]
+    environment = {**os.environ, "PYTHONPATH": str(scripts_dir)}
+    first_ready, second_ready = tmp_path / "first-ready", tmp_path / "second-ready"
+    first_done, second_done = tmp_path / "first-done", tmp_path / "second-done"
+
+    with lock_path.open("r+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        first_process = subprocess.Popen(
+            [*command, str(first), str(state_dir), str(first_ready), str(first_done)],
+            env={**environment, "RAM0_PROJECT_ID": "first-project"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        second_process = subprocess.Popen(
+            [*command, str(second), str(state_dir), str(second_ready), str(second_done)],
+            env={**environment, "RAM0_PROJECT_ID": "second-project"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 5
+        while not (first_ready.exists() and second_ready.exists()) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert first_ready.exists()
+        assert second_ready.exists()
+        time.sleep(1)
+        assert first_process.poll() is None
+        assert second_process.poll() is None
+        assert not first_done.exists()
+        assert not second_done.exists()
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    first_output = first_process.communicate(timeout=10)
+    second_output = second_process.communicate(timeout=10)
+    assert (first_process.returncode, first_output) == (0, ("", ""))
+    assert (second_process.returncode, second_output) == (0, ("", ""))
+
+    mapping_path = state_dir / "project_map.json"
+    raw = mapping_path.read_text(encoding="utf-8")
+    assert {"first-project", "second-project"} <= set(json.loads(raw).values())
+    assert stat.S_IMODE(lock_path.stat().st_mode) == 0o600
+    assert lock_path.read_text(encoding="utf-8") == ""
+    assert str(first) not in raw
+    assert str(second) not in raw
+    assert "private.example" not in raw
