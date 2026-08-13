@@ -91,11 +91,131 @@ def test_search_and_list_use_the_shared_owner_filter_helpers(principal):
     memory = FakeMemory(SimpleNamespace(payload={"user_id": OWNER_ID}))
     gateway = Ram0McpGateway(principal, memory)
 
-    assert gateway.search_memories("test query", 7) == {"ok": True, "memories": []}
-    assert gateway.list_memories(4) == {"ok": True, "memories": []}
+    assert gateway.search_memories("test query", 7, app_id="app-a") == {"ok": True, "memories": []}
+    assert gateway.list_memories(4, app_id="app-a") == {"ok": True, "memories": []}
 
-    assert memory.search_calls == [{"query": "test query", "filters": {"user_id": OWNER_ID}, "top_k": 7}]
-    assert memory.list_calls == [{"filters": {"user_id": OWNER_ID}, "top_k": 4}]
+    expected_filters = {
+        "AND": [{"user_id": OWNER_ID}, {"OR": [{"app_id": "app-a"}, {"app_id": None}]}]
+    }
+    assert memory.search_calls == [{"query": "test query", "filters": expected_filters, "top_k": 7}]
+    assert memory.list_calls == [{"filters": expected_filters, "top_k": 4}]
+
+
+@pytest.mark.parametrize(
+    ("scope", "app_id", "expected"),
+    [
+        (None, "app-a", {"AND": [{"user_id": OWNER_ID}, {"OR": [{"app_id": "app-a"}, {"app_id": None}]}]}),
+        ("project", "app-a", {"AND": [{"user_id": OWNER_ID}, {"app_id": "app-a"}]}),
+        ("global", None, {"user_id": OWNER_ID}),
+    ],
+)
+def test_search_scope_matrix_keeps_the_account_owner_filter(principal, scope, app_id, expected):
+    """Dropping the owner branch while applying scope exposes another account's same-named project."""
+    memory = FakeMemory(SimpleNamespace(payload={"user_id": OWNER_ID}))
+    gateway = Ram0McpGateway(principal, memory)
+
+    gateway.search_memories("query", scope=scope, app_id=app_id)
+
+    assert memory.search_calls[0]["filters"] == expected
+
+
+@pytest.mark.parametrize(
+    ("scope", "app_id", "expected"),
+    [
+        (None, "app-a", {"AND": [{"user_id": OWNER_ID}, {"OR": [{"app_id": "app-a"}, {"app_id": None}]}]}),
+        ("project", "app-a", {"AND": [{"user_id": OWNER_ID}, {"app_id": "app-a"}]}),
+        ("global", None, {"user_id": OWNER_ID}),
+    ],
+)
+def test_list_scope_matrix_keeps_the_account_owner_filter(principal, scope, app_id, expected):
+    """Listing must not broaden a selected project scope beyond the authenticated account."""
+    memory = FakeMemory(SimpleNamespace(payload={"user_id": OWNER_ID}))
+    gateway = Ram0McpGateway(principal, memory)
+
+    gateway.list_memories(scope=scope, app_id=app_id)
+
+    assert memory.list_calls[0]["filters"] == expected
+
+
+@pytest.mark.parametrize(
+    ("scope", "app_id", "expected_app_id"),
+    [(None, "app-a", "app-a"), ("project", "app-a", "app-a"), ("global", None, None)],
+)
+def test_remember_persists_only_the_selected_project_scope(principal, scope, app_id, expected_app_id):
+    """Persisting a project id in global scope would turn an account-wide write into a project write."""
+    memory = FakeMemory(SimpleNamespace(payload={"user_id": OWNER_ID}))
+    gateway = Ram0McpGateway(principal, memory, FakeCategoryService())
+
+    gateway.remember("private memory", scope=scope, app_id=app_id)
+
+    params = memory.add_calls[0]
+    assert params.get("app_id") == expected_app_id
+    if expected_app_id is None:
+        assert "app_id" not in params
+
+
+@pytest.mark.parametrize(
+    ("operation", "scope", "app_id"),
+    [
+        ("search", None, None),
+        ("list", "project", None),
+        ("remember", None, None),
+        ("remember", "project", None),
+        ("search", "global", "app-a"),
+        ("list", "global", "app-a"),
+        ("remember", "global", "app-a"),
+    ],
+)
+def test_scope_operations_reject_missing_or_conflicting_project_context(principal, operation, scope, app_id):
+    """Accepting incomplete scope context would make the server guess an authorization partition."""
+    memory = FakeMemory(SimpleNamespace(payload={"user_id": OWNER_ID}))
+    gateway = Ram0McpGateway(principal, memory, FakeCategoryService())
+
+    with pytest.raises(ToolError) as raised:
+        if operation == "search":
+            gateway.search_memories("query", scope=scope, app_id=app_id)
+        elif operation == "list":
+            gateway.list_memories(scope=scope, app_id=app_id)
+        else:
+            gateway.remember("private memory", scope=scope, app_id=app_id)
+
+    assert json.loads(str(raised.value))["code"] == "invalid_argument"
+    assert memory.search_calls == []
+    assert memory.list_calls == []
+    assert memory.add_calls == []
+
+
+@pytest.mark.parametrize("operation", ["search", "list", "remember"])
+@pytest.mark.parametrize("scope", ["", "account", "PROJECT", 1])
+def test_scope_operations_reject_invalid_scope_values(principal, operation, scope):
+    """Treating an unknown scope as a default could silently disclose unrelated memories."""
+    memory = FakeMemory(SimpleNamespace(payload={"user_id": OWNER_ID}))
+    gateway = Ram0McpGateway(principal, memory, FakeCategoryService())
+
+    with pytest.raises(ToolError) as raised:
+        if operation == "search":
+            gateway.search_memories("query", scope=scope, app_id="app-a")
+        elif operation == "list":
+            gateway.list_memories(scope=scope, app_id="app-a")
+        else:
+            gateway.remember("private memory", scope=scope, app_id="app-a")
+
+    assert json.loads(str(raised.value))["code"] == "invalid_argument"
+    assert memory.search_calls == []
+    assert memory.list_calls == []
+    assert memory.add_calls == []
+
+
+def test_remember_rejects_metadata_app_id_that_conflicts_with_the_top_level_scope(principal):
+    """Forwarding metadata app_id lets a client shadow the server-validated project selector."""
+    memory = FakeMemory(SimpleNamespace(payload={"user_id": OWNER_ID}))
+    gateway = Ram0McpGateway(principal, memory, FakeCategoryService())
+
+    with pytest.raises(ToolError) as raised:
+        gateway.remember("private memory", {"app_id": "other-project"}, app_id="app-a")
+
+    assert json.loads(str(raised.value))["code"] == "invalid_argument"
+    assert memory.add_calls == []
 
 
 @pytest.mark.parametrize(
@@ -139,12 +259,13 @@ def test_mcp_remember_resolves_the_authenticated_owner_catalog(principal):
     categories = FakeCategoryService()
     gateway = Ram0McpGateway(principal, memory, categories)
 
-    response = gateway.remember("Keep this private", {"source": "mcp"})
+    response = gateway.remember("Keep this private", {"source": "mcp"}, app_id="app-a")
 
     assert response["ok"] is True
     assert response["result"]["category_status"] == "pending"
     assert memory.add_calls[0]["messages"] == [{"role": "user", "content": "Keep this private"}]
     assert memory.add_calls[0]["user_id"] == OWNER_ID
+    assert memory.add_calls[0]["app_id"] == "app-a"
     assert memory.add_calls[0]["metadata"]["source"] == "mcp"
     assert isinstance(memory.add_calls[0]["metadata"]["_category_origin"], str)
     assert categories.resolve_catalog_calls == [(OWNER_ID, None)]
@@ -170,7 +291,7 @@ def test_write_metadata_rejects_ram0_managed_fields(principal, operation, metada
 
     with pytest.raises(ToolError) as raised:
         if operation == "remember":
-            gateway.remember("private memory", metadata)
+            gateway.remember("private memory", metadata, app_id="app-a")
         else:
             gateway.update_memory(MEMORY_ID, "private memory", metadata)
 
@@ -286,7 +407,7 @@ def test_successful_add_and_update_disclose_swallowed_category_failures(principa
     )
     gateway = Ram0McpGateway(principal, memory, categories)
 
-    added = gateway.remember("private memory")
+    added = gateway.remember("private memory", app_id="app-a")
     updated = gateway.update_memory(MEMORY_ID, "updated memory")
 
     assert added["ok"] is True
@@ -302,7 +423,7 @@ def test_provider_quota_returns_non_retryable_remediation_guidance(principal):
     gateway = Ram0McpGateway(principal, memory, FakeCategoryService())
 
     with pytest.raises(ToolError) as raised:
-        gateway.remember("private memory")
+        gateway.remember("private memory", app_id="app-a")
 
     error = json.loads(str(raised.value))
     assert error["code"] == "memory_write_unavailable"
@@ -318,7 +439,7 @@ def test_transient_provider_failures_retry_once_after_five_seconds(principal, er
     gateway = Ram0McpGateway(principal, memory, FakeCategoryService())
 
     with pytest.raises(ToolError) as raised:
-        gateway.remember("private memory")
+        gateway.remember("private memory", app_id="app-a")
 
     response = json.loads(str(raised.value))
     assert response["code"] == "upstream_unavailable"
@@ -334,7 +455,7 @@ def test_unexpected_write_errors_hide_secrets_and_include_the_request_id(princip
     gateway = Ram0McpGateway(principal, memory, FakeCategoryService())
 
     with pytest.raises(ToolError) as raised:
-        gateway.remember("private memory")
+        gateway.remember("private memory", app_id="app-a")
 
     error = json.loads(str(raised.value))
     assert error["code"] == "internal_error"
