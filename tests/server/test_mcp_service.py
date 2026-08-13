@@ -5,6 +5,9 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
+
+pytest.importorskip("fastmcp")
+
 from fastmcp.exceptions import ToolError
 
 from category_service import CategoryUpdateOutcome

@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+
+pytest.importorskip("fastapi")
+
 from fastapi import HTTPException
 
 from memory_authorization import MemoryPrincipal, owner_filters, reject_client_owner, require_owned_memory
