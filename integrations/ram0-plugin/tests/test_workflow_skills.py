@@ -98,6 +98,22 @@ def test_forget_requires_selection_and_confirmation():
     assert "exact resulting ids" in source
 
 
+def test_forget_query_preview_defaults_to_current_project_plus_global():
+    source = re.sub(r"\s+", " ", _skill_source("forget"))
+    default_search = (
+        'ram0:search_memories {"query":"<query>","limit":10,'
+        '"app_id":"<current app_id>"}'
+    )
+    project_search = (
+        'ram0:search_memories {"query":"<query>","limit":10,'
+        '"scope":"project","app_id":"<current app_id>"}'
+    )
+    assert default_search in source
+    assert "current project plus global" in source.lower()
+    assert project_search in source
+    assert "explicitly requests repository-only" in source.lower()
+
+
 def test_browsing_skills_disclose_bounded_results():
     for name in ("peek", "tour"):
         source = _skill_source(name).lower()
@@ -151,6 +167,13 @@ def test_import_previews_final_batch_before_writes():
     assert "write nothing" in lowered and "exact id" in lowered
     assert '"scope":"global"' in source
     assert "returned scope" in lowered
+
+
+def test_import_accepts_legacy_blocks_without_app_id_provenance():
+    source = re.sub(r"\s+", " ", _skill_source("import").lower())
+    assert "`app_id` is optional provenance" in source
+    assert "legacy exports without `app_id`" in source
+    assert "never copy an imported app id into a tool call" in source
 
 
 def test_import_update_uses_supported_exact_id_payload():

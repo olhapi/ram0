@@ -32,6 +32,14 @@ content.
    Otherwise search the user's query with a bounded result set:
 
    ```text
+   ram0:search_memories {"query":"<query>","limit":10,"app_id":"<current app_id>"}
+   ```
+
+   This normal preview includes the current project plus global memories. If
+   the user explicitly requests repository-only selection, use the narrower
+   project search instead:
+
+   ```text
    ram0:search_memories {"query":"<query>","limit":10,"scope":"project","app_id":"<current app_id>"}
    ```
 

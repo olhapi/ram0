@@ -50,6 +50,7 @@ SCRIPT_FILES = (
     "on_stop_cursor.sh",
     "on_user_prompt.sh",
     "on_user_prompt_cursor.sh",
+    "project_scope.py",
     "ram0_cli.py",
     "ram0_client.py",
     "ram0_config.py",
