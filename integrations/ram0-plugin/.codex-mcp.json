@@ -2,6 +2,7 @@
   "ram0": {
     "command": "./scripts/mcp_stdio_adapter.py",
     "args": [],
-    "cwd": "."
+    "cwd": ".",
+    "env": {"RAM0_PLUGIN_PROJECT_CONTEXT": "1"}
   }
 }

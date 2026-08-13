@@ -55,3 +55,7 @@ def test_verifier_source_proves_account_local_app_scopes_and_restore_state():
     assert "delete_app_memory_ids[role]" in source
     assert "delete_app_memory_ids[other_role]" in source
     assert 'delete_owner_index = 0 if auth_kind == "JWT" else 1' in source
+    assert 'from fastmcp import Client as McpClient' in source
+    assert 'await mcp.call_tool("remember"' in source
+    assert 'await mcp.call_tool("list_memories"' in source
+    assert "MCP default scope did not include project plus global" in source

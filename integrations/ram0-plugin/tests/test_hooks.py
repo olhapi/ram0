@@ -119,6 +119,7 @@ def test_supported_client_manifests_launch_the_same_config_aware_stdio_adapter()
         "command": "./scripts/mcp_stdio_adapter.py",
         "args": [],
         "cwd": ".",
+        "env": {"RAM0_PLUGIN_PROJECT_CONTEXT": "1"},
     }
 
 
@@ -346,7 +347,7 @@ def test_real_codex_install_lists_bundled_ram0_mcp_from_isolated_home(tmp_path):
     assert transport["command"] == "./scripts/mcp_stdio_adapter.py"
     assert transport["args"] == []
     assert Path(transport["cwd"]).resolve() == installed_path.resolve()
-    assert transport["env"] is None
+    assert transport["env"] == {"RAM0_PLUGIN_PROJECT_CONTEXT": "1"}
     assert "${PLUGIN_ROOT}/scripts/" in (installed_path / "hooks" / "codex-hooks.json").read_text()
     installed_skills = {
         path.parent.name for path in (installed_path / "skills").glob("*/SKILL.md")

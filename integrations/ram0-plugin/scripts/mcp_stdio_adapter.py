@@ -16,6 +16,35 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from ram0_config import RAM0_USER_AGENT, Ram0ConfigError, load_config
+from project_scope import ProjectScopeError, resolve_project_context
+
+
+_PROJECT_TOOLS = frozenset({"remember", "search_memories", "list_memories"})
+
+
+def _apply_plugin_project_context(message: dict[str, Any], environment: Mapping[str, str]) -> dict[str, Any]:
+    """Bind plugin tool calls to locally resolved context without changing direct MCP."""
+    if environment.get("RAM0_PLUGIN_PROJECT_CONTEXT") != "1" or message.get("method") != "tools/call":
+        return message
+    params = message.get("params")
+    if not isinstance(params, dict) or params.get("name") not in _PROJECT_TOOLS:
+        return message
+    arguments = params.get("arguments")
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        raise ValueError("MCP tool arguments must be an object.")
+    scoped = {**message, "params": {**params, "arguments": dict(arguments)}}
+    output = scoped["params"]["arguments"]
+    if output.get("scope") == "global":
+        output.pop("app_id", None)
+        return scoped
+    try:
+        launch_cwd = environment.get("RAM0_PROJECT_CWD") or environment.get("PWD")
+        output["app_id"] = resolve_project_context(launch_cwd, environment=environment).app_id
+    except ProjectScopeError as error:
+        raise ValueError("Ram0 project context is unavailable.") from error
+    return scoped
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -126,8 +155,9 @@ def run_stdio(
     home: Path | None = None,
     transport_factory=StreamableHttpTransport,
 ) -> int:
+    source = os.environ if environment is None else environment
     try:
-        config = load_config(environment, home=home, require_key=True)
+        config = load_config(source, home=home, require_key=True)
     except Ram0ConfigError as error:
         print(str(error), file=stderr, flush=True)
         return 1
@@ -151,6 +181,7 @@ def run_stdio(
                 print("Ram0 MCP adapter received invalid JSON-RPC input.", file=stderr, flush=True)
                 continue
             try:
+                message = _apply_plugin_project_context(message, source)
                 for response in transport.send(message):
                     emit(response)
                 if message.get("method") == "initialize" and listener is None:

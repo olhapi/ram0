@@ -11,6 +11,7 @@ the container, database dumps, restored databases, and generated history DB.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -408,6 +409,47 @@ def main() -> None:
             canaries.extend([admin_key, member_key])
             admin_key_headers = {"X-API-Key": admin_key}
             member_key_headers = {"X-API-Key": member_key}
+
+            async def verify_mcp_app_scopes() -> None:
+                from fastmcp import Client as McpClient
+
+                app_id = f"verify-{uuid.uuid4().hex}-mcp"
+                other_app_id = f"verify-{uuid.uuid4().hex}-mcp-other"
+                owner_memories: dict[str, set[str]] = {}
+                for role, key in (("admin", admin_key), ("member", member_key)):
+                    async with McpClient(f"{base_url}/mcp", auth=key) as mcp:
+                        created_ids = set()
+                        for scope, selected_app in (("global", None), ("project", app_id), ("project", other_app_id)):
+                            content = secrets.token_urlsafe(18)
+                            canaries.append(content)
+                            arguments = {"content": content, "scope": scope}
+                            if selected_app is not None:
+                                arguments["app_id"] = selected_app
+                            result = await mcp.call_tool("remember", arguments)
+                            payload = result.structured_content or {}
+                            created_ids.update(str(item["id"]) for item in payload.get("memories", []))
+                        owner_memories[role] = created_ids
+                        reads = {
+                            "default": await mcp.call_tool("list_memories", {"limit": 100, "app_id": app_id}),
+                            "project": await mcp.call_tool(
+                                "list_memories", {"limit": 100, "scope": "project", "app_id": app_id}
+                            ),
+                            "global": await mcp.call_tool("list_memories", {"limit": 100, "scope": "global"}),
+                        }
+                        read_ids = {
+                            name: {str(item["id"]) for item in (result.structured_content or {}).get("memories", [])}
+                            for name, result in reads.items()
+                        }
+                        if len(read_ids["default"] & created_ids) != 2:
+                            raise AssertionError("MCP default scope did not include project plus global")
+                        if len(read_ids["project"] & created_ids) != 1:
+                            raise AssertionError("MCP project scope was not exact")
+                        if not created_ids.issubset(read_ids["global"]):
+                            raise AssertionError("MCP global scope was not owner-wide")
+                if owner_memories["admin"] & owner_memories["member"]:
+                    raise AssertionError("MCP app scope crossed owner boundary")
+
+            asyncio.run(verify_mcp_app_scopes())
 
             credentials = {
                 "JWT": [("admin", admin_id, admin_headers), ("member", member_id, member_headers)],
