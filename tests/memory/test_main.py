@@ -2,11 +2,12 @@ import logging
 import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
 from mem0.exceptions import LLMError
+from mem0.memory import main as memory_main
 from mem0.memory.main import AsyncMemory, Memory
 
 
@@ -1226,3 +1227,32 @@ class TestAddPipelineEntityEmbeddingCountGuard:
         assert any("padding/truncating" in r.message for r in caplog.records), (
             "expected count-mismatch warning was not emitted"
         )
+def test_get_all_accepts_nested_owner_and_app_scope_filters(monkeypatch):
+    memory = Memory.__new__(Memory)
+    memory.vector_store = MagicMock()
+    memory.vector_store.list.return_value = []
+    memory.api_version = "v1.1"
+    monkeypatch.setattr(memory_main, "capture_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(memory_main, "display_first_run_notice", lambda *_args, **_kwargs: None)
+
+    filters = {"AND": [{"user_id": "owner"}, {"OR": [{"app_id": "project"}, {"app_id": None}]}]}
+    assert memory.get_all(filters=filters) == {"results": []}
+    assert memory.vector_store.list.call_args.kwargs["filters"] == {
+        "$and": [{"user_id": "owner"}, {"$or": [{"app_id": "project"}, {"app_id": None}]}]
+    }
+
+
+@pytest.mark.asyncio
+async def test_async_get_all_accepts_nested_owner_and_app_scope_filters(monkeypatch):
+    memory = AsyncMemory.__new__(AsyncMemory)
+    memory.vector_store = MagicMock()
+    memory.vector_store.list.return_value = []
+    memory.api_version = "v1.1"
+    monkeypatch.setattr(memory_main, "capture_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(memory_main, "display_first_run_notice_async", AsyncMock())
+
+    filters = {"AND": [{"user_id": "owner"}, {"NOT": [{"app_id": "archived"}]}]}
+    assert await memory.get_all(filters=filters) == {"results": []}
+    assert memory.vector_store.list.call_args.kwargs["filters"] == {
+        "$and": [{"user_id": "owner"}, {"$not": [{"app_id": "archived"}]}]
+    }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Callable
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -15,46 +16,53 @@ def _payload(request: dict[str, Any]) -> Any:
     return json.loads(request["body"]) if request["body"] is not None else None
 
 
-def _assert_no_server_owned_fields(value: Any) -> None:
-    forbidden = {"user_id", "app_id", "run_id", "expiration_date"}
+def _assert_no_owner_or_lifecycle_fields(value: Any) -> None:
+    forbidden = {"user_id", "run_id", "expiration_date"}
     if isinstance(value, dict):
         assert not (set(value) & forbidden)
         for child in value.values():
-            _assert_no_server_owned_fields(child)
+            _assert_no_owner_or_lifecycle_fields(child)
     elif isinstance(value, list):
         for child in value:
-            _assert_no_server_owned_fields(child)
+            _assert_no_owner_or_lifecycle_fields(child)
 
 
 @pytest.mark.parametrize(
     ("operation", "method", "path", "expected_payload"),
     [
         (
-            lambda client: client.search("architecture", limit=7),
+            lambda client: client.search("architecture", limit=7, app_id="app-a", scope="project"),
             "POST",
             "/search",
-            {"query": "architecture", "top_k": 7},
+            {"query": "architecture", "top_k": 7, "filters": {"app_id": "app-a"}},
         ),
         (
-            lambda client: client.add("Prefer tests", {"project": "ram0"}),
+            lambda client: client.add("Prefer tests", {"project": "ram0"}, app_id="app-a"),
             "POST",
             "/memories",
             {
                 "messages": [{"role": "user", "content": "Prefer tests"}],
                 "metadata": {"project": "ram0"},
+                "app_id": "app-a",
             },
         ),
         (
-            lambda client: client.add_durable("Prefer tests", {"project": "ram0"}),
+            lambda client: client.add_durable("Prefer tests", {"project": "ram0"}, app_id="app-a"),
             "POST",
             "/memories",
             {
                 "messages": [{"role": "user", "content": "Prefer tests"}],
                 "metadata": {"project": "ram0"},
                 "infer": False,
+                "app_id": "app-a",
             },
         ),
-        (lambda client: client.list(limit=3), "GET", "/memories?top_k=3", None),
+        (
+            lambda client: client.list(limit=3, app_id="app-a", scope="project"),
+            "GET",
+            "/memories?top_k=3&filters=%7B%22app_id%22%3A%22app-a%22%7D",
+            None,
+        ),
         (lambda client: client.get("memory-1"), "GET", "/memories/memory-1", None),
         (
             lambda client: client.update("memory-1", "Updated", {"branch": "main"}),
@@ -93,7 +101,195 @@ def test_operations_send_only_bearer_auth_and_safe_payloads(
     assert request["headers"]["user-agent"].startswith("ram0-plugin/")
     assert ("content-type" in request["headers"]) is (expected_payload is not None)
     assert _payload(request) == expected_payload
-    _assert_no_server_owned_fields(expected_payload)
+    _assert_no_owner_or_lifecycle_fields(expected_payload)
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected_filters"),
+    [
+        (None, {"OR": [{"app_id": "app-a"}, {"app_id": None}]}),
+        ("project", {"app_id": "app-a"}),
+        ("global", None),
+    ],
+)
+def test_search_scope_matrix_sends_exact_mem0_style_app_filter(ram0_server, scope, expected_filters):
+    """Breaks if a read widens or narrows the selected project/global scope."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    client.search("architecture", app_id="app-a", scope=scope)
+
+    payload = _payload(ram0_server.requests[0])
+    assert payload == {
+        "query": "architecture",
+        "top_k": 10,
+        **({"filters": expected_filters} if expected_filters is not None else {}),
+    }
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected_filters"),
+    [
+        (None, {"OR": [{"app_id": "app-a"}, {"app_id": None}]}),
+        ("project", {"app_id": "app-a"}),
+        ("global", None),
+    ],
+)
+def test_list_scope_matrix_sends_exact_json_encoded_mem0_style_app_filter(ram0_server, scope, expected_filters):
+    """Breaks if list scope leaks another project or omits global memories from the default."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    client.list(app_id="app-a", scope=scope)
+
+    query = parse_qs(urlsplit(ram0_server.requests[0]["path"]).query)
+    assert query["top_k"] == ["100"]
+    if expected_filters is None:
+        assert "filters" not in query
+    else:
+        assert json.loads(query["filters"][0]) == expected_filters
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+@pytest.mark.parametrize(
+    "caller_filters",
+    [
+        {"OR": [{"app_id": "project-b"}, {"app_id": None}]},
+        {"AND": [{"NOT": [{"app_id": {"in": ["archived-a", "archived-b"]}}]}]},
+        {"categories": {"in": ["architecture"]}},
+        {"AND": [{"run_id": "run-1"}, {"agent_id": "agent-1"}]},
+    ],
+)
+def test_read_merges_structured_caller_filters_with_project_scope_using_and(
+    ram0_server, operation, caller_filters
+):
+    """Breaks if caller filters override the current scope or lose hosted-style boolean predicates."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    getattr(client, operation)(*arguments, app_id="app-a", scope="project", filters=caller_filters)
+
+    request = ram0_server.requests[0]
+    if operation == "search":
+        sent_filters = _payload(request)["filters"]
+    else:
+        sent_filters = json.loads(parse_qs(urlsplit(request["path"]).query)["filters"][0])
+    assert sent_filters == {"AND": [{"app_id": "app-a"}, caller_filters]}
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+def test_global_read_preserves_non_identity_caller_filter_without_app_filter(ram0_server, operation):
+    """Breaks if global scope discards caller filters or silently adds a project predicate."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+    caller_filters = {"categories": {"in": ["architecture"]}}
+
+    getattr(client, operation)(*arguments, app_id="app-a", scope="global", filters=caller_filters)
+
+    request = ram0_server.requests[0]
+    if operation == "search":
+        sent_filters = _payload(request)["filters"]
+    else:
+        sent_filters = json.loads(parse_qs(urlsplit(request["path"]).query)["filters"][0])
+    assert sent_filters == caller_filters
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+@pytest.mark.parametrize(
+    "caller_filters",
+    [
+        {"user_id": "victim"},
+        {"OR": [{"app_id": "safe"}, {"NOT": [{"user_id": "victim"}]}]},
+    ],
+)
+def test_read_rejects_hidden_user_id_before_network(ram0_server, operation, caller_filters):
+    """Breaks if a nested caller owner can cross the account-derived authorization seam."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    with pytest.raises(ValueError, match="user_id"):
+        getattr(client, operation)(*arguments, app_id="app-a", filters=caller_filters)
+
+    assert ram0_server.requests == []
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+def test_read_rejects_hidden_credentials_before_network(ram0_server, operation):
+    """Breaks if adding structured filters creates a route for secrets to enter request payloads."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    with pytest.raises(ValueError, match="reserved"):
+        getattr(client, operation)(
+            *arguments,
+            app_id="app-a",
+            filters={"OR": [{"app_id": "safe"}, {"api_token": "secret"}]},
+        )
+
+    assert ram0_server.requests == []
+
+
+@pytest.mark.parametrize("operation", ["search", "list"])
+@pytest.mark.parametrize(
+    "caller_filters",
+    [
+        {"OR": [{"app_id": "../checkout"}]},
+        {"NOT": [{"app_id": {"in": ["valid", "has spaces"]}}]},
+    ],
+)
+def test_read_rejects_invalid_nested_app_id_before_network(ram0_server, operation, caller_filters):
+    """Breaks if malformed app predicates bypass the normalized project contract."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation == "search" else ()
+
+    with pytest.raises(ValueError, match="app_id"):
+        getattr(client, operation)(*arguments, app_id="app-a", filters=caller_filters)
+
+    assert ram0_server.requests == []
+
+
+@pytest.mark.parametrize(
+    ("operation", "scope", "expected_app_id"),
+    [
+        ("add", None, "app-a"),
+        ("add", "project", "app-a"),
+        ("add", "global", None),
+        ("add_durable", None, "app-a"),
+        ("add_durable", "project", "app-a"),
+        ("add_durable", "global", None),
+    ],
+)
+def test_write_scope_matrix_controls_only_trusted_top_level_app_id(ram0_server, operation, scope, expected_app_id):
+    """Breaks if project writes become global or global writes acquire a project label."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    getattr(client, operation)("Decision", {"kind": "decision"}, app_id="app-a", scope=scope)
+
+    payload = _payload(ram0_server.requests[0])
+    assert payload.get("app_id") == expected_app_id
+    assert ("app_id" in payload) is (expected_app_id is not None)
+    assert "app_id" not in payload["metadata"]
+
+
+@pytest.mark.parametrize("scope", ["", "all", "repository", 1])
+def test_invalid_scope_is_rejected_before_network(ram0_server, scope):
+    """Breaks if a typo silently widens a read or changes write placement."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+
+    with pytest.raises(ValueError, match="scope"):
+        client.search("architecture", app_id="app-a", scope=scope)
+
+    assert ram0_server.requests == []
+
+
+@pytest.mark.parametrize("operation", ["search", "list", "add", "add_durable"])
+def test_default_and_project_scopes_require_normalized_app_id_before_network(ram0_server, operation):
+    """Breaks if an absent current project silently becomes account-global."""
+    client = Ram0Client(ram0_server.url, "ram0-test-key")
+    arguments = ("architecture",) if operation in {"search", "add", "add_durable"} else ()
+
+    with pytest.raises(ValueError, match="app_id"):
+        getattr(client, operation)(*arguments, app_id=None)
+
+    assert ram0_server.requests == []
 
 
 @pytest.mark.parametrize(
@@ -120,7 +316,7 @@ def test_metadata_rejects_server_owned_and_credential_fields_before_network(ram0
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
     with pytest.raises(ValueError, match="reserved"):
-        client.add("Never send owner data", {reserved_key: "value"})
+        client.add("Never send owner data", {reserved_key: "value"}, app_id="app-a")
 
     assert ram0_server.requests == []
 
@@ -152,7 +348,7 @@ def test_memory_metadata_rejects_padded_reserved_keys_before_network(ram0_server
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
     with pytest.raises(ValueError, match="reserved"):
-        client.add("Never send padded reserved fields", {padded_key: "value"})
+        client.add("Never send padded reserved fields", {padded_key: "value"}, app_id="app-a")
 
     assert ram0_server.requests == []
 
@@ -180,6 +376,7 @@ def test_credential_adjacent_metadata_keys_are_not_false_positives(ram0_server):
             "password_policy": "rotated",
             "credential_rotation_date": "2026-08-10",
         },
+        app_id="app-a",
     )
 
     assert len(ram0_server.requests) == 1
@@ -208,7 +405,7 @@ def test_http_errors_are_actionable_without_leaking_credentials_or_payload(ram0_
     client = Ram0Client(ram0_server.url, "ram0-test-key")
 
     with pytest.raises(Ram0ClientError) as raised:
-        client.add("Prefer tests", {"project": "ram0"})
+        client.add("Prefer tests", {"project": "ram0"}, app_id="app-a")
 
     error = raised.value
     assert (error.status, error.code, error.action) == (503, "service_unavailable", "Check RAM0_API_URL and try again.")

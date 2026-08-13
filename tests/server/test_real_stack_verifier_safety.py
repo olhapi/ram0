@@ -1,8 +1,21 @@
+"""Safety and acceptance contracts for the disposable real-stack verifier."""
+
+# Modified for Ram0; see NOTICE and repository history.
+
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from scripts import verify_multi_user_real_stack as verifier
+
+
+def test_mcp_memory_id_parser_matches_remember_and_list_envelopes():
+    remember = SimpleNamespace(structured_content={"ok": True, "result": {"results": [{"id": "one"}]}})
+    listed = SimpleNamespace(structured_content={"ok": True, "memories": {"results": [{"id": "one"}, {"id": "two"}]}})
+
+    assert verifier.mcp_memory_ids(remember, "result") == {"one"}
+    assert verifier.mcp_memory_ids(listed, "memories") == {"one", "two"}
 
 
 def test_verifier_failure_never_touches_repository_history_sentinel(tmp_path, monkeypatch):
@@ -28,3 +41,33 @@ def test_verifier_source_does_not_unlink_repository_history_database():
 
     assert 'SERVER / "history" / "history.db"' not in source
     assert "HISTORY_DB.unlink" not in source
+
+
+def test_verifier_source_proves_account_local_app_scopes_and_restore_state():
+    source = Path(verifier.__file__).read_text()
+
+    for contract in (
+        '"global"',
+        '"app-a"',
+        '"app-b"',
+        '"default project plus global"',
+        '"project exact"',
+        '"global owner-wide"',
+        "app entity deletion",
+        "payload->>'app_id'",
+        "app_scopes=true",
+    ):
+        assert contract in source
+
+    assert 'client.delete(f"/entities/app/' in source
+    assert 'scope_memory_ids[other_role]["app-a"]' in source
+    assert "delete_app_memory_ids[role]" in source
+    assert "delete_app_memory_ids[other_role]" in source
+    assert 'delete_owner_index = 0 if auth_kind == "JWT" else 1' in source
+    assert 'from fastmcp import Client as McpClient' in source
+    assert 'await mcp.call_tool("remember"' in source
+    assert 'await mcp.call_tool("list_memories"' in source
+    assert "MCP default scope did not include project plus global" in source
+    assert "foreign_ids = owner_memories[other_role]" in source
+    assert "for scope_name, result_ids in read_ids.items()" in source
+    assert "foreign_ids & result_ids" in source

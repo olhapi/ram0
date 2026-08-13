@@ -35,6 +35,8 @@ ram0 config test
 
 `ram0 setup` reads the key without echo and stores it with the URL at `~/.config/ram0/config.json` (`0700` directory, `0600` file). Plugin install and update preserve that config. The key is sent only as `Authorization: Bearer` to the configured endpoint and is never stored as memory or logged. Normal setup requires no environment exports.
 
+The MCP endpoint is Bearer-only and does not accept the REST API's `X-API-Key` header.
+
 ## Update the full plugin
 
 ```bash
@@ -60,6 +62,16 @@ Restart after upgrading. Native updates preserve the config and require no check
 | `forget_memory` | Delete an account-owned memory by UUID. |
 
 The API-key owner determines the account-wide namespace; clients cannot choose another owner, agent, run, or expiration scope.
+
+## Git project memory scopes
+
+`app_id` groups memories by Git project inside the authenticated account. It follows Mem0-style app filtering, but it is not a Ram0 project resource, access-control boundary, or membership system. Account ownership always remains the outer boundary, so identical `app_id` values in different accounts never share data.
+
+The full plugin resolves the current project on every lifecycle event. Resolution uses `RAM0_PROJECT_ID` first, then a private saved mapping, the canonical Git origin (host and repository path), the Git repository name, and finally the current directory name. Normal recall searches the current project plus global memories; normal writes use the current project. Select `scope: "global"` for an account-wide read or write. Memories created before project scoping have no `app_id` and remain global automatically.
+
+Direct MCP is remote from the editor lifecycle and cannot auto-detect its working directory. For `remember`, `search_memories`, or `list_memories`, pass a normalized `app_id` for default/current-project behavior or combine it with `scope: "project"` for an exact project read. Use `scope: "global"` without `app_id` for account-wide behavior.
+
+App entries returned by `/entities` are derived memory buckets, not project objects. Deleting an app entity removes matching memories only from the authenticated account; the same app name in another account is unaffected.
 
 ## Workflow skills
 

@@ -7,6 +7,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+pytest.importorskip("fastapi")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, delete, event, select, text

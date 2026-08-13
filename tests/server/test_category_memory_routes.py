@@ -3,6 +3,7 @@
 import importlib
 import os
 import threading
+import uuid
 from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,7 @@ pytest.importorskip("fastapi", reason="fastapi not installed")
 from fastapi.testclient import TestClient
 
 from category_models import CategoryDefinition, EffectiveCatalog
+from category_store import MemoryCategoryStore
 from memory_owner_migration import OwnershipMigrationResult
 
 
@@ -176,6 +178,72 @@ def test_add_category_failure_preserves_successful_core_response(client, categor
     assert response.json()["results"][0]["category_status"] == "unclassified"
 
 
+def test_app_id_survives_category_failure_and_update_route_projection(
+    client, mock_memory, category_service
+):
+    """Category reconciliation must not erase the project scope returned by the core memory layer."""
+    app_id = "github.com-olhapi-ram0"
+    mock_memory.add.return_value = {
+        "results": [{"id": "m1", "event": "ADD", "memory": "Invoice", "app_id": app_id}]
+    }
+    category_service.after_add.side_effect = RuntimeError("database unavailable")
+
+    added = client.post(
+        "/memories",
+        json={"messages": [{"role": "user", "content": "Invoice"}], "app_id": app_id},
+    )
+
+    assert added.status_code == 200, added.text
+    assert added.json()["results"][0]["app_id"] == app_id
+
+    category_service.run_memory_update.side_effect = lambda _memory_id, operation, **_kwargs: operation()
+    mock_memory.update.return_value = {"id": "m1", "memory": "updated", "app_id": app_id}
+    updated = client.put("/memories/m1", json={"text": "Updated invoice"})
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["app_id"] == app_id
+
+
+@pytest.mark.parametrize("transition", ["prepare", "classify", "fail", "restore"])
+def test_category_payload_transitions_preserve_app_id(transition):
+    """Category-only payload patches must retain the native app scope field."""
+    app_id = "github.com-olhapi-ram0"
+    owner_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    payload = {
+        "user_id": str(owner_id),
+        "app_id": app_id,
+        "data": "Invoice",
+        "hash": "hash-1",
+        "categories": ["billing"],
+        "category_status": "completed",
+        "_category_generation": "old-generation",
+        "_category_origin": "origin-1",
+    }
+    row = SimpleNamespace(id="m1", payload=payload)
+    vector_store = MagicMock()
+    vector_store.get.return_value = row
+
+    def patch_payload(_memory_id, fields, **_kwargs):
+        payload.update(fields)
+        return row
+
+    vector_store._patch_payload.side_effect = patch_payload
+    store = MemoryCategoryStore(lambda: SimpleNamespace(vector_store=vector_store))
+    snapshot = store.get("m1")
+
+    if transition == "prepare":
+        result = store.mark_pending("m1", "next-generation", owner_id=owner_id)
+        assert result.payload["app_id"] == app_id
+    elif transition == "classify":
+        assert store.write_result("m1", "hash-1", "old-generation", ["billing"], "completed", owner_id=owner_id)
+    elif transition == "fail":
+        assert store.fail_origin(snapshot)
+    else:
+        assert store.restore(snapshot, expected_generation="old-generation")
+
+    assert payload["app_id"] == app_id
+
+
 def test_every_put_runs_core_update_and_category_reconciliation_under_one_fence(
     client, category_service, mock_memory
 ):
@@ -328,8 +396,10 @@ def test_get_memories_repeated_categories_are_any_filter(client, mock_memory):
 
     assert response.status_code == 200, response.text
     assert mock_memory.get_all.call_args.kwargs["filters"] == {
-        "user_id": "u1",
-        "categories": {"in": ["billing", "health"]},
+        "AND": [
+            {"user_id": "u1"},
+            {"categories": {"in": ["billing", "health"]}},
+        ]
     }
 
 
@@ -341,7 +411,12 @@ def test_account_list_repeated_categories_are_any_filter(client, mock_memory):
 
     assert response.status_code == 200, response.text
     assert mock_memory.get_all.call_args.kwargs == {
-        "filters": {"user_id": "u1", "categories": {"in": ["billing", "health"]}},
+        "filters": {
+            "AND": [
+                {"user_id": "u1"},
+                {"categories": {"in": ["billing", "health"]}},
+            ]
+        },
         "top_k": 7,
         "show_expired": False,
     }
@@ -353,7 +428,9 @@ def test_search_passes_nested_category_filter_to_core_unchanged(client, mock_mem
     response = client.post("/search", json={"query": "invoice", "filters": filters})
 
     assert response.status_code == 200, response.text
-    assert mock_memory.search.call_args.kwargs["filters"] == {"user_id": "u1", **filters}
+    assert mock_memory.search.call_args.kwargs["filters"] == {
+        "AND": [{"user_id": "u1"}, filters]
+    }
 
 
 def test_account_list_emits_category_fields_once(client, mock_memory):

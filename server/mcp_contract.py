@@ -1,5 +1,7 @@
 """Stable, client-actionable result contracts for Ram0 MCP tools."""
 
+# Modified for Ram0; see NOTICE and repository history.
+
 import json
 from typing import Any
 
@@ -54,6 +56,16 @@ _INVALID_ARGUMENT_VARIANTS = {
         "message": "limit must be an integer from 1 through 100.",
         "how_to_fix": "Provide an integer limit from 1 through 100.",
         "example": {"limit": 20},
+    },
+    "scope": {
+        "message": 'scope must be omitted, "project", or "global".',
+        "how_to_fix": 'Omit scope for the current project plus global memories, or use "project" or "global".',
+        "example": {"scope": "project", "app_id": "github.com-org-repository"},
+    },
+    "app_id": {
+        "message": "app_id is required for default and project scope, and must be omitted for global scope.",
+        "how_to_fix": "Provide a normalized project app_id, or use global scope without app_id.",
+        "example": {"scope": "project", "app_id": "github.com-org-repository"},
     },
 }
 

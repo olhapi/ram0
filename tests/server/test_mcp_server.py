@@ -1,5 +1,7 @@
 """MCP transport mounting and authentication boundary contracts."""
 
+# Modified for Ram0; see NOTICE and repository history.
+
 # ruff: noqa: E402 -- server initialization reads these test-only environment values at import time.
 
 import asyncio
@@ -115,14 +117,22 @@ def test_mcp_registers_only_scoped_memory_tool_schemas():
     assert tools["remember"].parameters["properties"] == {
         "content": {"type": "string"},
         "metadata": {"anyOf": [{"additionalProperties": True, "type": "object"}, {"type": "null"}], "default": None},
+        "scope": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+        "app_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
     }
     assert tools["remember"].parameters["required"] == ["content"]
     assert tools["search_memories"].parameters["properties"] == {
+        "app_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
         "limit": {"default": 10, "type": "integer"},
         "query": {"type": "string"},
+        "scope": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
     }
     assert tools["search_memories"].parameters["required"] == ["query"]
-    assert tools["list_memories"].parameters["properties"] == {"limit": {"default": 20, "type": "integer"}}
+    assert tools["list_memories"].parameters["properties"] == {
+        "app_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+        "limit": {"default": 20, "type": "integer"},
+        "scope": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+    }
     assert "required" not in tools["list_memories"].parameters
     assert tools["get_memory"].parameters["properties"] == {"memory_id": {"type": "string"}}
     assert tools["get_memory"].parameters["required"] == ["memory_id"]
@@ -141,12 +151,12 @@ def test_mcp_tools_coerce_numeric_string_limits(monkeypatch):
     calls = []
 
     class Gateway:
-        def search_memories(self, query, limit):
-            calls.append(("search", query, limit, type(limit)))
+        def search_memories(self, query, limit, scope=None, app_id=None):
+            calls.append(("search", query, limit, type(limit), scope, app_id))
             return {"ok": True, "memories": []}
 
-        def list_memories(self, limit):
-            calls.append(("list", limit, type(limit)))
+        def list_memories(self, limit, scope=None, app_id=None):
+            calls.append(("list", limit, type(limit), scope, app_id))
             return {"ok": True, "memories": []}
 
         def get_memory(self, memory_id):
@@ -155,10 +165,17 @@ def test_mcp_tools_coerce_numeric_string_limits(monkeypatch):
     monkeypatch.setattr(mcp_server, "_gateway_for_current_request", lambda: Gateway())
     server, _ = mcp_server.create_mcp_http_app()
 
-    asyncio.run(server._tool_manager.call_tool("search_memories", {"query": "test", "limit": "3"}))
-    asyncio.run(server._tool_manager.call_tool("list_memories", {"limit": "4"}))
+    asyncio.run(
+        server._tool_manager.call_tool(
+            "search_memories", {"query": "test", "limit": "3", "scope": "project", "app_id": "app-a"}
+        )
+    )
+    asyncio.run(server._tool_manager.call_tool("list_memories", {"limit": "4", "scope": "global"}))
 
-    assert calls == [("search", "test", 3, int), ("list", 4, int)]
+    assert calls == [
+        ("search", "test", 3, int, "project", "app-a"),
+        ("list", 4, int, "global", None),
+    ]
 
 
 def test_valid_mcp_transport_reaches_the_mounted_application_and_invalid_transport_does_not(monkeypatch):
@@ -229,8 +246,8 @@ def test_mounted_mcp_protocol_exposes_the_documented_six_tools(monkeypatch):
     """The documented slashless URL must support a complete authenticated MCP exchange."""
 
     class Gateway:
-        def list_memories(self, limit):
-            return {"ok": True, "memories": [], "limit": limit}
+        def list_memories(self, limit, scope=None, app_id=None):
+            return {"ok": True, "memories": [], "limit": limit, "scope": scope, "app_id": app_id}
 
     async def authenticate(_request):
         return MemoryPrincipal(owner_id="00000000-0000-0000-0000-000000000111")
@@ -283,7 +300,7 @@ def test_mounted_mcp_protocol_exposes_the_documented_six_tools(monkeypatch):
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {"name": "list_memories", "arguments": {"limit": 1}},
+                "params": {"name": "list_memories", "arguments": {"limit": 1, "scope": "global"}},
             },
             session_id=session_id,
         )
@@ -302,7 +319,13 @@ def test_mounted_mcp_protocol_exposes_the_documented_six_tools(monkeypatch):
     }
     assert len(listed_tools["result"]["tools"]) == 6
     assert {tool["name"] for tool in listed_tools["result"]["tools"]} == expected_tools
-    assert json.loads(listed_memories["result"]["content"][0]["text"]) == {"ok": True, "memories": [], "limit": 1}
+    assert json.loads(listed_memories["result"]["content"][0]["text"]) == {
+        "ok": True,
+        "memories": [],
+        "limit": 1,
+        "scope": "global",
+        "app_id": None,
+    }
     assert duplicate_path.status_code == 404
 
 
@@ -311,7 +334,7 @@ def test_mounted_mcp_protocol_serializes_a_guided_tool_error(monkeypatch):
     from mcp_contract import tool_error
 
     class Gateway:
-        def search_memories(self, query, limit):
+        def search_memories(self, query, limit, scope=None, app_id=None):
             tool_error("invalid_argument", variant="search_query")
 
     async def authenticate(_request):
@@ -394,11 +417,12 @@ def test_mcp_readme_documents_the_protected_client_contract():
     """The setup guide must not cause clients to use the REST API-key header or a duplicate path."""
     content = (Path(__file__).parents[2] / "server/README.md").read_text()
 
-    assert (
-        '[mcp_servers.ram0]\nurl = "https://ram0.example.lan/mcp"\nbearer_token_env_var = "RAM0_API_KEY"'
-    ) in content
-    assert "Bearer-only" in content
-    assert "does not accept\n`X-API-Key`" in content
+    assert "ram0 setup --url 'https://ram0.example.lan'" in content
+    assert "codex mcp add ram0 -- python3 ~/.local/share/ram0/mcp_stdio_adapter.py" in content
+    assert "~/.config/ram0/config.json" in content
+    assert "Authorization: Bearer" in content
+    assert "bearer_token_env_var" not in content
+    assert "does not accept `X-API-Key`" in content
     assert "account-wide" in content
     assert "ownership version 1" in content
     assert {
@@ -418,8 +442,11 @@ def test_public_ram0_mcp_documentation_is_registered_without_a_literal_credentia
     docs_config = (root / "docs/docs.json").read_text()
     llms_index = (root / "docs/llms.txt").read_text()
 
-    assert 'bearer_token_env_var = "RAM0_API_KEY"' in content
+    assert "ram0 setup --url 'https://ram0.example.lan'" in content
+    assert "~/.config/ram0/config.json" in content
+    assert "Authorization: Bearer" in content
+    assert "bearer_token_env_var" not in content
     assert "X-API-Key" in content
-    assert "expiration_date" in content
+    assert "expiration scope" in content
     assert "open-source/ram0-mcp" in docs_config
     assert "Self-Hosted Ram0 MCP" in llms_index

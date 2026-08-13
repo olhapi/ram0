@@ -20,6 +20,7 @@ INITIALIZE = {
 TOOLS_LIST = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
 
 
+
 class StreamableMcpFixture:
     def __init__(self):
         self.requests: list[dict[str, object]] = []

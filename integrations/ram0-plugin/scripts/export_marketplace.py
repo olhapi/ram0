@@ -8,10 +8,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import shutil
-import stat
 from pathlib import Path
 
 
@@ -36,6 +34,7 @@ PLUGIN_TREES = ("bin", "hooks", "skills")
 SCRIPT_FILES = (
     "bootstrap_cli.py",
     "ensure_deps.sh",
+    "hook_entry.py",
     "install_cli.py",
     "mcp_stdio_adapter.py",
     "memory_capture.py",
@@ -49,6 +48,7 @@ SCRIPT_FILES = (
     "on_stop_cursor.sh",
     "on_user_prompt.sh",
     "on_user_prompt_cursor.sh",
+    "project_scope.py",
     "ram0_cli.py",
     "ram0_client.py",
     "ram0_config.py",

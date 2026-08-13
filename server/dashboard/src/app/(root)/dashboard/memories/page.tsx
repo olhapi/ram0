@@ -1,5 +1,7 @@
 "use client";
 
+// Modified for Ram0; see NOTICE and repository history.
+
 import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { format } from "date-fns";
@@ -202,6 +204,12 @@ export default function MemoriesPage() {
     },
     { key: "user_id" as keyof Memory, label: "User", width: 100 },
     { key: "agent_id" as keyof Memory, label: "Agent", width: 100 },
+    {
+      key: "app_id" as keyof Memory,
+      label: "Project",
+      width: 180,
+      render: (value: string | undefined) => value ?? "Global",
+    },
     {
       key: "created_at" as keyof Memory,
       label: "Created",
@@ -409,6 +417,14 @@ export default function MemoriesPage() {
                     <p className="text-sm">{selectedMemory.agent_id}</p>
                   </div>
                 )}
+                <div className="space-y-1">
+                  <Label className="text-xs text-onSurface-default-tertiary">
+                    Project
+                  </Label>
+                  <p className="text-sm font-mono break-all">
+                    {selectedMemory.app_id ?? "Global"}
+                  </p>
+                </div>
                 {selectedMemory.created_at && (
                   <div className="space-y-1">
                     <Label className="text-xs text-onSurface-default-tertiary">

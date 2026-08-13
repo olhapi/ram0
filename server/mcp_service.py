@@ -1,5 +1,7 @@
 """Owner-scoped read and write gateway used by Ram0 MCP tools."""
 
+# Modified for Ram0; see NOTICE and repository history.
+
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -8,12 +10,13 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from fastmcp.exceptions import ToolError
 
+from app_scope import AppScope, read_filters, write_app_id
 from category_models import CATEGORY_GENERATION_KEY, CATEGORY_ORIGIN_KEY, promote_category_fields
 from category_runtime import get_category_service
 from category_service import CategoryUpdateOutcome
 from errors import new_request_id, request_id_var
 from mcp_contract import tool_error, tool_success
-from memory_authorization import MemoryPrincipal, owner_filters, reject_client_owner, require_owned_memory
+from memory_authorization import MemoryPrincipal, reject_client_owner, require_owned_memory
 
 
 _QUOTA_ERROR_NAMES = frozenset({"RateLimitError", "QuotaExceededError"})
@@ -21,6 +24,7 @@ _TRANSIENT_ERROR_NAMES = frozenset({"APITimeoutError", "APIConnectionError", "Co
 _RESERVED_MCP_METADATA_KEYS = frozenset(
     {
         "user_id",
+        "app_id",
         "expiration_date",
         "categories",
         "category_status",
@@ -120,29 +124,55 @@ class Ram0McpGateway:
     def _valid_read_limit(limit: object) -> bool:
         return type(limit) is int and 1 <= limit <= _MAX_MCP_READ_LIMIT
 
-    def search_memories(self, query: str, limit: int = 10) -> dict[str, Any]:
+    @staticmethod
+    def _scope(value: object) -> AppScope | None:
+        """Parse the only client-selectable scope values without exposing parser details."""
+        if value is None:
+            return None
+        try:
+            return AppScope(value)
+        except (TypeError, ValueError):
+            tool_error("invalid_argument", variant="scope")
+
+    def _read_filters(self, scope: object, app_id: str | None) -> dict[str, Any]:
+        try:
+            return read_filters(self._principal.owner_id, app_id, self._scope(scope))
+        except ValueError:
+            tool_error("invalid_argument", variant="app_id")
+
+    def _write_app_id(self, scope: object, app_id: str | None) -> str | None:
+        try:
+            return write_app_id(app_id, self._scope(scope))
+        except ValueError:
+            tool_error("invalid_argument", variant="app_id")
+
+    def search_memories(
+        self, query: str, limit: int = 10, scope: str | None = None, app_id: str | None = None
+    ) -> dict[str, Any]:
         """Search memories owned by the authenticated account."""
         if not isinstance(query, str) or not query.strip():
             tool_error("invalid_argument", variant="search_query")
         if not self._valid_read_limit(limit):
             tool_error("invalid_argument", variant="search_limit")
+        filters = self._read_filters(scope, app_id)
         try:
             memories = self._memory.search(
                 query=query,
-                filters=owner_filters(self._principal),
+                filters=filters,
                 top_k=limit,
             )
         except Exception as error:
             _write_error(error)
         return tool_success(memories=memories)
 
-    def list_memories(self, limit: int = 20) -> dict[str, Any]:
+    def list_memories(self, limit: int = 20, scope: str | None = None, app_id: str | None = None) -> dict[str, Any]:
         """List memories owned by the authenticated account."""
         if not self._valid_read_limit(limit):
             tool_error("invalid_argument", variant="list_limit")
+        filters = self._read_filters(scope, app_id)
         try:
             memories = self._memory.get_all(
-                filters=owner_filters(self._principal),
+                filters=filters,
                 top_k=limit,
             )
         except Exception as error:
@@ -157,11 +187,18 @@ class Ram0McpGateway:
         except Exception as error:
             _write_error(error)
 
-    def remember(self, content: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    def remember(
+        self,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+        scope: str | None = None,
+        app_id: str | None = None,
+    ) -> dict[str, Any]:
         """Extract and store memory from one user-authored message."""
         if not self._valid_write_arguments(content, metadata):
             tool_error("invalid_argument")
         try:
+            scoped_app_id = self._write_app_id(scope, app_id)
             reject_client_owner(metadata)
             reject_client_metadata_controls(metadata)
             service = self._categories()
@@ -172,6 +209,8 @@ class Ram0McpGateway:
                 "user_id": self._principal.owner_id,
                 "metadata": {**(metadata or {}), CATEGORY_ORIGIN_KEY: origin_token},
             }
+            if scoped_app_id is not None:
+                params["app_id"] = scoped_app_id
             with service.owner_fence(self._principal.owner_id):
                 result = promote_category_fields(self._memory.add(**params))
                 notices: list[str] = []

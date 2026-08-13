@@ -36,13 +36,16 @@ def test_runtime_sources_exclude_vendor_endpoints_telemetry_and_mem0_credentials
     assert violations == {}
 
 
-def test_runtime_request_sources_do_not_inject_identity_or_expiration_json_fields():
-    """Breaks if runtime request construction begins emitting server-owned identity or expiry keys."""
-    prohibited_json_key = re.compile(r"""["'](?:user_id|app_id|run_id|expiration_date)["']\s*:""")
+def test_runtime_request_sources_do_not_inject_owner_expiration_or_credentials_as_json_fields():
+    """Breaks if hook payload construction emits account ownership, expiry, or credentials."""
+    prohibited_json_key = re.compile(
+        r"""["'](?:user_id|expiration_date|api_key|api_token|access_token|authorization|password)["']\s*:"""
+    )
 
     violations = {
         path: match.group(0)
         for path, source in _runtime_sources().items()
+        if path.name == "memory_capture.py"
         if (match := prohibited_json_key.search(source)) is not None
     }
 

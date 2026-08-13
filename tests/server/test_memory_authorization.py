@@ -1,9 +1,13 @@
+# Modified for Ram0; see NOTICE and repository history.
 """Unit contracts for the immutable core-memory ownership policy."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+
+pytest.importorskip("fastapi")
+
 from fastapi import HTTPException
 
 from memory_authorization import MemoryPrincipal, owner_filters, reject_client_owner, require_owned_memory
@@ -18,13 +22,87 @@ def vector_row(*, user_id: str):
     return SimpleNamespace(id="memory-id", payload={"user_id": user_id, "data": "private"})
 
 
-def test_owner_filters_cannot_be_overridden(principal: MemoryPrincipal):
-    """Dropping the canonical owner permits a caller filter to search another account."""
-    assert owner_filters(principal, agent_id="a", extra={"categories": {"in": ["work"]}}) == {
-        "user_id": principal.owner_id,
-        "agent_id": "a",
-        "categories": {"in": ["work"]},
+def test_owner_filters_can_be_narrowed_by_a_trusted_app_id(principal: MemoryPrincipal):
+    """Dropping the trusted app clause permits a project-specific query to read account-wide memory."""
+    assert owner_filters(
+        principal, agent_id="a", app_id="github.com-olhapi-ram0", extra={"categories": {"in": ["work"]}}
+    ) == {
+        "AND": [
+            {"user_id": principal.owner_id},
+            {"agent_id": "a", "app_id": "github.com-olhapi-ram0"},
+            {"categories": {"in": ["work"]}},
+        ]
     }
+
+
+def test_owner_filters_accepts_app_id_from_filter_transport(principal: MemoryPrincipal):
+    """Rejecting filters.app_id breaks the documented search request shape."""
+    assert owner_filters(principal, extra={"app_id": "github.com-olhapi-ram0"}) == {
+        "AND": [
+            {"user_id": principal.owner_id},
+            {"app_id": "github.com-olhapi-ram0"},
+        ]
+    }
+
+
+def test_owner_filters_composes_top_level_and_structured_app_predicates(principal: MemoryPrincipal):
+    """Top-level project context and caller predicates must both narrow beneath the owner."""
+    assert owner_filters(
+        principal,
+        app_id="github.com-olhapi-ram0",
+        extra={"OR": [{"app_id": "github.com-olhapi-other"}, {"app_id": None}]},
+    ) == {
+        "AND": [
+            {"user_id": principal.owner_id},
+            {"app_id": "github.com-olhapi-ram0"},
+            {"OR": [{"app_id": "github.com-olhapi-other"}, {"app_id": None}]},
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "structured_filter",
+    [
+        {"OR": [{"app_id": "github.com-olhapi-ram0"}, {"app_id": None}]},
+        {"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]},
+        {"NOT": [{"app_id": "archived-project"}]},
+        {"AND": [{"categories": {"in": ["work"]}}, {"OR": [{"app_id": "project-a"}]}]},
+    ],
+)
+def test_owner_filters_preserves_nested_app_predicates_beneath_owner(principal, structured_filter):
+    """Hosted-style boolean app expressions must survive while ownership stays outermost."""
+    assert owner_filters(principal, extra=structured_filter) == {
+        "AND": [{"user_id": principal.owner_id}, structured_filter]
+    }
+
+
+@pytest.mark.parametrize("invalid", ["../checkout", "has spaces", {"in": ["valid", "../invalid"]}])
+def test_owner_filters_rejects_invalid_nested_app_values(principal, invalid):
+    """Every app value must be validated regardless of boolean/operator depth."""
+    with pytest.raises(HTTPException) as error:
+        owner_filters(principal, extra={"OR": [{"NOT": [{"app_id": invalid}]}]})
+
+    assert error.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "operand",
+    [
+        {"in": [{"user_id": "victim"}]},
+        {"in": [[{"user_id": "victim"}]]},
+        {"in": ([{"user_id": "victim"}],)},
+    ],
+    ids=["mapping-in-list", "mapping-in-nested-list", "mapping-in-tuple"],
+)
+def test_owner_filters_rejects_user_id_inside_app_operand(principal, operand):
+    """An app operator must never hide a client-authored owner selector from recursive validation."""
+    with pytest.raises(HTTPException) as error:
+        owner_filters(principal, extra={"app_id": operand})
+
+    assert (error.value.status_code, error.value.detail) == (
+        422,
+        "user_id is assigned from the authenticated account.",
+    )
 
 
 @pytest.mark.parametrize(
@@ -35,11 +113,17 @@ def test_owner_filters_cannot_be_overridden(principal: MemoryPrincipal):
     ],
 )
 def test_nested_owner_selectors_are_rejected(value: object):
-    """Removing recursive validation lets nested search predicates bypass isolation."""
+    """Removing recursive validation lets nested client predicates bypass trusted isolation."""
     with pytest.raises(HTTPException) as error:
         reject_client_owner(value)
 
     assert error.value.status_code == 422
+
+
+def test_owner_filters_validates_the_trusted_app_id(principal: MemoryPrincipal):
+    """Skipping validation allows the server-side project argument to become an unsafe filter."""
+    with pytest.raises(ValueError, match="app_id"):
+        owner_filters(principal, app_id="../other-project")
 
 
 def test_excessively_nested_client_structure_is_rejected_deterministically():
@@ -50,6 +134,18 @@ def test_excessively_nested_client_structure_is_rejected_deterministically():
 
     with pytest.raises(HTTPException) as error:
         reject_client_owner(value)
+
+    assert (error.value.status_code, error.value.detail) == (422, "Request structure is too deeply nested.")
+
+
+def test_owner_filters_rejects_excessively_nested_structured_app_filter(principal):
+    """Structured app validation must use the same bounded non-recursive traversal."""
+    value: object = {"app_id": "project-a"}
+    for _ in range(66):
+        value = {"OR": [value]}
+
+    with pytest.raises(HTTPException) as error:
+        owner_filters(principal, extra=value)
 
     assert (error.value.status_code, error.value.detail) == (422, "Request structure is too deeply nested.")
 

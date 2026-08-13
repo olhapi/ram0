@@ -218,6 +218,45 @@ def test_add_derives_owner_from_the_authenticated_principal(route_client, header
     assert "00000000-0000-0000-0000-000000000099" not in memory.add.call_args.kwargs.values()
 
 
+def test_create_passes_valid_app_id_beneath_derived_owner(route_client):
+    """Dropping a trusted app_id would store a project decision in the account-wide scope."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.post(
+        "/memories",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={
+            "messages": [{"role": "user", "content": "Decision: Use pgvector."}],
+            "app_id": "github.com-olhapi-ram0",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.add.call_args.kwargs["user_id"] == str(jwt_account.id)
+    assert memory.add.call_args.kwargs["app_id"] == "github.com-olhapi-ram0"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"app_id": "../checkout"},
+        {"metadata": {"app_id": "github.com-olhapi-other"}},
+    ],
+)
+def test_create_rejects_invalid_or_metadata_app_id(route_client, body):
+    """Accepting an invalid or metadata app selector would bypass the trusted top-level scope."""
+    client, memory, _, _ = route_client
+
+    response = client.post(
+        "/memories",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={"messages": [{"role": "user", "content": "private"}], **body},
+    )
+
+    assert response.status_code == 422
+    memory.add.assert_not_called()
+
+
 def test_list_and_search_are_scoped_to_the_authenticated_owner(route_client):
     """Removing the owner filter exposes memories belonging to every account."""
     client, memory, jwt_account, _ = route_client
@@ -241,16 +280,265 @@ def test_list_and_search_are_scoped_to_the_authenticated_owner(route_client):
     assert listed.status_code == 200, listed.text
     assert searched.status_code == 200, searched.text
     assert memory.get_all.call_args.kwargs["filters"] == {
-        "user_id": str(jwt_account.id),
-        "agent_id": "assistant",
-        "categories": {"in": ["work"]},
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"agent_id": "assistant"},
+            {"categories": {"in": ["work"]}},
+        ]
     }
     assert memory.search.call_args.kwargs["filters"] == {
-        "user_id": str(jwt_account.id),
-        "agent_id": "assistant",
-        "run_id": "run-1",
-        "categories": {"in": ["work"]},
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"agent_id": "assistant", "run_id": "run-1"},
+            {"categories": {"in": ["work"]}},
+        ]
     }
+
+
+def test_search_with_app_id_never_loses_owner_filter(route_client):
+    """Applying app scope without the owner would expose another account using the same app label."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={"query": "pgvector", "filters": {"app_id": "github.com-olhapi-ram0"}},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.search.call_args.kwargs["filters"] == {
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"app_id": "github.com-olhapi-ram0"},
+        ]
+    }
+
+
+def test_list_and_delete_all_compose_app_id_with_owner(route_client):
+    """An app-only list or delete would cross account boundaries for shared project labels."""
+    client, memory, jwt_account, _ = route_client
+    headers = {"Authorization": "Bearer account-jwt"}
+
+    listed = client.get("/memories", headers=headers, params={"app_id": "github.com-olhapi-ram0"})
+    deleted = client.delete("/memories", headers=headers, params={"app_id": "github.com-olhapi-ram0"})
+
+    assert listed.status_code == 200, listed.text
+    assert deleted.status_code == 200, deleted.text
+    assert memory.get_all.call_args.kwargs["filters"] == {
+        "user_id": str(jwt_account.id),
+        "app_id": "github.com-olhapi-ram0",
+    }
+    memory.delete_all.assert_called_once_with(
+        user_id=str(jwt_account.id),
+        agent_id=None,
+        run_id=None,
+        app_id="github.com-olhapi-ram0",
+    )
+
+
+@pytest.mark.parametrize(
+    "structured_filter",
+    [
+        {"OR": [{"app_id": "github.com-olhapi-ram0"}, {"app_id": None}]},
+        {"AND": [{"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]}]},
+    ],
+)
+def test_list_accepts_json_structured_app_filters_beneath_owner(route_client, structured_filter):
+    """GET list must carry hosted-style project expressions beneath account ownership."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.get(
+        "/memories",
+        params={"filters": __import__("json").dumps(structured_filter)},
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.get_all.call_args.kwargs["filters"] == {
+        "AND": [{"user_id": str(jwt_account.id)}, structured_filter]
+    }
+
+
+@pytest.mark.parametrize("filters", ["{not-json", "[]", '"project-a"', "null"])
+def test_list_rejects_invalid_or_non_object_json_filters(route_client, filters):
+    """Malformed and non-object query filters return a stable client error, never a 500."""
+    client, memory, _, _ = route_client
+
+    response = client.get(
+        "/memories",
+        params={"filters": filters},
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "filters must be a JSON object."}
+    memory.get_all.assert_not_called()
+
+
+def test_list_rejects_hidden_user_id_in_json_filters(route_client):
+    """JSON transport must retain recursive owner rejection at arbitrary boolean depth."""
+    client, memory, _, _ = route_client
+    structured_filter = {"OR": [{"app_id": "project-a"}, {"NOT": [{"user_id": "victim"}]}]}
+
+    response = client.get(
+        "/memories",
+        params={"filters": __import__("json").dumps(structured_filter)},
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 422
+    memory.get_all.assert_not_called()
+
+
+def test_list_combines_json_scalar_and_category_filters_with_and(route_client):
+    """Legacy scalar/category filters and structured filters must all narrow under one owner."""
+    client, memory, jwt_account, _ = route_client
+    structured_filter = {"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]}
+
+    response = client.get(
+        "/memories",
+        params=[
+            ("filters", __import__("json").dumps(structured_filter)),
+            ("app_id", "current-project"),
+            ("agent_id", "assistant"),
+            ("categories", "work"),
+            ("categories", "personal"),
+        ],
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.get_all.call_args.kwargs["filters"] == {
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"agent_id": "assistant", "app_id": "current-project"},
+            {
+                "AND": [
+                    structured_filter,
+                    {"categories": {"in": ["work", "personal"]}},
+                ]
+            },
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "structured_filter",
+    [
+        {"OR": [{"app_id": "github.com-olhapi-ram0"}, {"app_id": None}]},
+        {"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]},
+        {"NOT": [{"app_id": "archived-project"}]},
+    ],
+)
+def test_search_preserves_structured_app_filters_beneath_owner(route_client, structured_filter):
+    """REST search must preserve hosted-style app predicates inside the account boundary."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={"query": "private", "filters": structured_filter},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.search.call_args.kwargs["filters"] == {
+        "AND": [{"user_id": str(jwt_account.id)}, structured_filter]
+    }
+
+
+def test_search_composes_top_level_app_id_with_structured_app_filter(route_client):
+    """Both app transports narrow with AND instead of conflicting or overriding."""
+    client, memory, _, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={
+            "query": "private",
+            "app_id": "github.com-olhapi-ram0",
+            "filters": {"OR": [{"app_id": "github.com-olhapi-other"}, {"app_id": None}]},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    clauses = memory.search.call_args.kwargs["filters"]["AND"]
+    assert clauses[1:] == [
+        {"app_id": "github.com-olhapi-ram0"},
+        {"OR": [{"app_id": "github.com-olhapi-other"}, {"app_id": None}]},
+    ]
+
+
+@pytest.mark.parametrize(
+    "structured_filter",
+    [
+        {"OR": [{"app_id": "../checkout"}]},
+        {"NOT": [{"app_id": {"in": ["valid", "has spaces"]}}]},
+    ],
+)
+def test_search_rejects_invalid_nested_app_id(route_client, structured_filter):
+    """Malformed app selectors return 422 even when buried in boolean operators."""
+    client, memory, _, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={
+            "query": "private",
+            "filters": structured_filter,
+        },
+    )
+
+    assert response.status_code == 422
+    memory.search.assert_not_called()
+
+
+def test_two_accounts_wrap_the_same_structured_app_filter_with_distinct_owners(route_client):
+    """App predicates organize results; only the outer authenticated owner isolates accounts."""
+    client, memory, jwt_account, api_key_account = route_client
+    filters = {"OR": [{"app_id": "shared-project"}, {"app_id": None}]}
+    body = {"query": "private", "filters": filters}
+
+    first = client.post("/search", headers={"Authorization": "Bearer account-jwt"}, json=body)
+    second = client.post("/search", headers={"X-API-Key": "account-api-key"}, json=body)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert [call.kwargs["filters"] for call in memory.search.call_args_list] == [
+        {"AND": [{"user_id": str(jwt_account.id)}, filters]},
+        {"AND": [{"user_id": str(api_key_account.id)}, filters]},
+    ]
+
+
+def test_app_id_is_preserved_in_collection_responses(route_client):
+    """Dropping app_id from responses would prevent clients from distinguishing project scope."""
+    client, memory, _, _ = route_client
+    memory.get_all.return_value = {
+        "results": [{"id": "memory-id", "memory": "private", "app_id": "github.com-olhapi-ram0"}]
+    }
+    memory.search.return_value = memory.get_all.return_value
+    headers = {"Authorization": "Bearer account-jwt"}
+
+    listed = client.get("/memories", headers=headers)
+    searched = client.post("/search", headers=headers, json={"query": "private"})
+
+    assert listed.json()["results"][0]["app_id"] == "github.com-olhapi-ram0"
+    assert searched.json()["results"][0]["app_id"] == "github.com-olhapi-ram0"
+
+
+def test_two_accounts_can_share_an_app_label_without_sharing_owner_scope(route_client):
+    """The same Git project label is account-local and must retain a distinct owner filter."""
+    client, memory, jwt_account, api_key_account = route_client
+    body = {"query": "private", "app_id": "github.com-olhapi-ram0"}
+
+    first = client.post("/search", headers={"Authorization": "Bearer account-jwt"}, json=body)
+    second = client.post("/search", headers={"X-API-Key": "account-api-key"}, json=body)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert [call.kwargs["filters"] for call in memory.search.call_args_list] == [
+        {"user_id": str(jwt_account.id), "app_id": "github.com-olhapi-ram0"},
+        {"user_id": str(api_key_account.id), "app_id": "github.com-olhapi-ram0"},
+    ]
 
 
 @pytest.mark.parametrize(

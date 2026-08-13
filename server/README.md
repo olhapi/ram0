@@ -122,6 +122,32 @@ agent, or run scope. MCP is available only after ownership version 1 is ready;
 if a legacy-data migration has not completed safely, resolve the server's
 ownership-version readiness diagnostic before connecting a client.
 
+### Git project memory scopes
+
+`app_id` is an optional Git-project grouping inside the authenticated account.
+It is compatible with Mem0-style app filters, but it is not a Ram0 project
+resource, membership model, or security boundary. The authenticated account
+remains the outer boundary for every read, write, entity operation, and reset;
+two accounts may safely use the same `app_id` without sharing memories.
+
+The full plugin resolves a normalized project ID for each hook event. Its
+resolution order is `RAM0_PROJECT_ID`, a private saved mapping, the canonical
+Git origin (host plus repository path), the Git repository name, then the
+current directory name. Linked worktrees share the saved Git identity. Raw
+paths, remotes, branches, credentials, and account identity are not stored in
+memory metadata.
+
+Normal plugin recall combines the current project with global memories. Normal
+writes use the current project; an explicit `global` write omits `app_id` and
+is visible account-wide. Existing memories without `app_id` therefore remain
+global and need no migration. Direct MCP cannot inspect the calling agent's
+working directory: pass the normalized `app_id` for default or `project`
+operations, or choose `scope: "global"` explicitly.
+
+The `/entities` app rows are derived buckets, not project objects. Deleting an
+app entity deletes only memories with that `app_id` inside the authenticated
+account; it cannot affect the same app name owned by another account.
+
 The MCP surface contains exactly these six tools:
 
 | Tool              | Use                                           |

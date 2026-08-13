@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+pytest.importorskip("fastapi")
+
 import category_runtime
 from category_classifier import CategoryResultError
 from category_models import CategoryDefinition, CategoryJobState

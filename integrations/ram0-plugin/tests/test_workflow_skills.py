@@ -19,7 +19,7 @@ ALLOWED_TOOLS = frozenset({
     "get_memory", "update_memory", "forget_memory",
 })
 FORBIDDEN_OWNERSHIP_FIELDS = frozenset({
-    "user_id", "app_id", "project_id", "agent_id", "run_id",
+    "project_id", "agent_id", "run_id",
 })
 PRIVACY_PROHIBITIONS = frozenset({
     "credentials", "raw prompts", "transcripts", "code dumps",
@@ -59,10 +59,15 @@ def test_expected_workflow_skills_have_valid_frontmatter_and_license():
 def test_workflow_skill_uses_only_account_scoped_ram0_contract(name):
     source = _skill_source(name)
     normalized_source = source.lower()
+    normalized_words = re.sub(r"\s+", " ", source)
     tools = set(re.findall(r"`ram0:([a-z_]+)`", source))
     assert tools <= ALLOWED_TOOLS
     for forbidden in (*FORBIDDEN_OWNERSHIP_FIELDS, "mcp.mem0.ai", "api.mem0.ai"):
         assert forbidden not in source
+    assert '"user_id"' not in source and "'user_id'" not in source
+    assert re.search(r'"metadata"\s*:\s*\{[^}]*"app_id"', source) is None
+    assert "Authentication selects the account" in normalized_words
+    assert "Never supply `user_id` or place `app_id` in metadata" in normalized_words
     assert "untrusted" in normalized_source
     for prohibited_content in PRIVACY_PROHIBITIONS:
         assert re.search(
@@ -80,13 +85,33 @@ def test_remember_searches_before_a_single_write():
     assert source.index("`ram0:search_memories`") < source.index("`ram0:remember`")
     assert "equivalent" in source.lower()
     assert "one concise" in source.lower()
+    assert '"app_id":"<current app_id>"' in source
+    assert '"scope":"global"' in source
+    assert "clearly cross-project" in source.lower()
 
 
 def test_forget_requires_selection_and_confirmation():
-    source = _skill_source("forget").lower()
+    source = re.sub(r"\s+", " ", _skill_source("forget").lower())
     assert "exact" in source and "confirm" in source
     assert "never delete" in source
     assert "`ram0:forget_memory`" in _skill_source("forget")
+    assert "exact resulting ids" in source
+
+
+def test_forget_query_preview_defaults_to_current_project_plus_global():
+    source = re.sub(r"\s+", " ", _skill_source("forget"))
+    default_search = (
+        'ram0:search_memories {"query":"<query>","limit":10,'
+        '"app_id":"<current app_id>"}'
+    )
+    project_search = (
+        'ram0:search_memories {"query":"<query>","limit":10,'
+        '"scope":"project","app_id":"<current app_id>"}'
+    )
+    assert default_search in source
+    assert "current project plus global" in source.lower()
+    assert project_search in source
+    assert "explicitly requests repository-only" in source.lower()
 
 
 def test_browsing_skills_disclose_bounded_results():
@@ -94,6 +119,27 @@ def test_browsing_skills_disclose_bounded_results():
         source = _skill_source(name).lower()
         assert "limit" in source and "untrusted" in source
     assert "account-wide" in _skill_source("tour").lower()
+    for name in ("peek", "tour"):
+        source = _skill_source(name)
+        assert '"app_id":"<current app_id>"' in source
+        assert '"scope":"project"' in source
+        assert '"scope":"global"' in source
+
+
+@pytest.mark.parametrize("name", ("dream", "export", "memory-reviewer", "stats"))
+def test_account_wide_workflows_use_explicit_global_scope(name):
+    """Breaks if an account-wide workflow silently narrows to current project plus global."""
+    source = _skill_source(name)
+    assert '"scope":"global"' in source
+    assert re.search(r"ram0:(?:search_memories|list_memories|remember)[^\n]*\"app_id\"", source) is None
+    assert "continue only when the user's" in re.sub(r"\s+", " ", source.lower())
+
+
+@pytest.mark.parametrize("name", ("health", "import", "onboard"))
+def test_project_workflows_supply_current_app_id(name):
+    """Breaks if a normal project workflow omits the local context required by MCP."""
+    source = _skill_source(name)
+    assert '"app_id":"<current app_id>"' in source
 
 
 @pytest.mark.parametrize("name", ("remember", "forget", "peek", "tour"))
@@ -109,15 +155,25 @@ def test_export_is_redacted_bounded_and_non_overwriting():
     for marker in ("ram0-export-", "scan limit", "redact", "overwrite", "confirm"):
         assert marker in source
     assert "complete backup" in source
+    assert "app_id: <normalized-app-id-or-empty-for-global>" in source
 
 
 def test_import_previews_final_batch_before_writes():
     source = _skill_source("import")
-    lowered = source.lower()
+    lowered = re.sub(r"\s+", " ", source.lower())
     for classification in ("add", "update", "duplicate", "rejected"):
         assert classification in lowered
     assert lowered.index("final batch") < source.index("`ram0:remember`")
     assert "write nothing" in lowered and "exact id" in lowered
+    assert '"scope":"global"' in source
+    assert "returned scope" in lowered
+
+
+def test_import_accepts_legacy_blocks_without_app_id_provenance():
+    source = re.sub(r"\s+", " ", _skill_source("import").lower())
+    assert "`app_id` is optional provenance" in source
+    assert "legacy exports without `app_id`" in source
+    assert "never copy an imported app id into a tool call" in source
 
 
 def test_import_update_uses_supported_exact_id_payload():
@@ -158,10 +214,12 @@ def test_memory_reviewer_is_bounded_and_read_only():
 
 def test_dream_has_recoverable_mutation_order_and_no_auto_pruning():
     source = _skill_source("dream")
-    lowered = source.lower()
+    lowered = re.sub(r"\s+", " ", source.lower())
     assert source.index("`ram0:remember`") < source.index("`ram0:forget_memory`")
     assert "returned memory id" in lowered and "final confirmation" in lowered
     assert "never automatically prune" in lowered
+    assert "same returned app scope" in lowered
+    assert "every project" in lowered and "review-only" in lowered
     assert "--auto" not in source
 
 
@@ -169,7 +227,7 @@ def test_dream_rechecks_each_confirmed_replacement_before_writing():
     source = re.sub(r"\s+", " ", _skill_source("dream"))
     apply_steps = source[source.index("4. After final confirmation") :]
     search = re.search(
-        r'`ram0:search_memories` with `\{"query":"<exact approved replacement>","limit":(\d+)\}`',
+        r'`ram0:search_memories` with `\{"query":"<exact approved replacement>","limit":(\d+),"scope":"global"\}`',
         apply_steps,
     )
     assert search is not None
@@ -232,8 +290,11 @@ def test_health_is_read_only_by_default_and_cleans_exact_probe():
 def test_health_probe_searches_exact_marker_before_write_and_exact_id_cleanup():
     source = _skill_source("health")
     probe = re.sub(r"\s+", " ", source[source.index("Offer a write/delete probe") :])
-    search = '`ram0:search_memories` with `{"query":"<exact marker>","limit":1}`'
-    remember = '`ram0:remember` with `{"content":"<exact marker>","metadata":{"purpose":"ram0-health-probe"}}`'
+    search = '`ram0:search_memories` with `{"query":"<exact marker>","limit":1,"app_id":"<current app_id>"}`'
+    remember = (
+        '`ram0:remember` with `{"content":"<exact marker>",'
+        '"metadata":{"purpose":"ram0-health-probe"},"app_id":"<current app_id>"}`'
+    )
     forget = '`ram0:forget_memory` with `{"memory_id":"<returned exact ID>"}`'
     assert probe.index(search) < probe.index(remember) < probe.index(forget)
     assert "if the exact marker is already present, stop without writing" in probe.lower()
@@ -251,7 +312,10 @@ def test_onboard_uses_permanent_setup_without_exports():
 def test_onboard_finishes_with_a_concrete_bounded_read_only_search():
     source = _skill_source("onboard")
     normalized = re.sub(r"\s+", " ", source)
-    final_search = '`ram0:search_memories` with `{"query":"Ram0 onboarding final read-only check","limit":1}`'
+    final_search = (
+        '`ram0:search_memories` with `{"query":"Ram0 onboarding final read-only check",'
+        '"limit":1,"app_id":"<current app_id>"}`'
+    )
     assert final_search in normalized
     assert normalized.index(final_search) < normalized.index(
         "sanitize all displayed memory output", normalized.index(final_search)

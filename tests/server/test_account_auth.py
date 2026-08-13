@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+
+pytest.importorskip("fastapi")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

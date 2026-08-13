@@ -1,5 +1,7 @@
 "use client";
 
+// Modified for Ram0; see NOTICE and repository history.
+
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { format } from "date-fns";
@@ -16,9 +18,26 @@ import { ENTITY_ENDPOINTS } from "@/utils/api-endpoints";
 import { getErrorMessage } from "@/lib/error-message";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { Entity } from "@/types/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { EntityType } from "@/types/api";
+
+type EntityFilter = "all" | EntityType;
+
+const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
+  app: "Project",
+  agent: "Agent",
+  run: "Run",
+};
 
 export default function EntitiesPage() {
   const [entityToDelete, setEntityToDelete] = useState<Entity | null>(null);
+  const [entityFilter, setEntityFilter] = useState<EntityFilter>("all");
 
   const {
     data: entities = [],
@@ -57,7 +76,7 @@ export default function EntitiesPage() {
       width: 100,
       render: (value: Entity["type"]) => (
         <Badge variant="outline" className="capitalize">
-          {value}
+          {ENTITY_TYPE_LABELS[value]}
         </Badge>
       ),
     },
@@ -99,21 +118,46 @@ export default function EntitiesPage() {
     },
   ];
 
+  const visibleEntities =
+    entityFilter === "all"
+      ? entities
+      : entities.filter((entity) => entity.type === entityFilter);
+
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold font-fustat">Entities</h1>
+
+      <Select
+        value={entityFilter}
+        onValueChange={(value) => setEntityFilter(value as EntityFilter)}
+      >
+        <SelectTrigger className="w-48" aria-label="Filter entities by type">
+          <SelectValue placeholder="All entities" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All entities</SelectItem>
+          <SelectItem value="app">Projects</SelectItem>
+          <SelectItem value="agent">Agents</SelectItem>
+          <SelectItem value="run">Runs</SelectItem>
+        </SelectContent>
+      </Select>
 
       {isLoading ? (
         <TableSkeleton rows={5} columns={5} />
       ) : entities.length === 0 ? (
         <EmptyState
           title="No entities yet"
-          description="Entities appear once memories are stored with a user_id, agent_id, or run_id."
+          description="Projects, agents, and runs appear once scoped memories are stored."
+        />
+      ) : visibleEntities.length === 0 ? (
+        <EmptyState
+          title="No matching entities"
+          description="No memories use this scope yet."
         />
       ) : (
         <Card className="border-memBorder-primary overflow-hidden">
           <DataTable
-            data={entities}
+            data={visibleEntities}
             columns={columns}
             getRowKey={(row) => `${row.type}:${row.id}`}
           />

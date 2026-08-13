@@ -1,5 +1,7 @@
 """FastMCP Streamable HTTP application mounted by the REST server."""
 
+# Modified for Ram0; see NOTICE and repository history.
+
 from typing import Any
 
 from fastmcp import FastMCP
@@ -29,14 +31,16 @@ def create_mcp_http_app():
     )
 
     @server.tool()
-    def search_memories(query: str, limit: int = 10) -> dict[str, Any]:
-        """Search your memories using a natural-language query."""
-        return _gateway_for_current_request().search_memories(query, limit)
+    def search_memories(
+        query: str, limit: int = 10, scope: str | None = None, app_id: str | None = None
+    ) -> dict[str, Any]:
+        """Search client-supplied project plus global by default; project is exact, global account-wide."""
+        return _gateway_for_current_request().search_memories(query, limit, scope, app_id)
 
     @server.tool()
-    def list_memories(limit: int = 20) -> dict[str, Any]:
-        """List your memories."""
-        return _gateway_for_current_request().list_memories(limit)
+    def list_memories(limit: int = 20, scope: str | None = None, app_id: str | None = None) -> dict[str, Any]:
+        """List client-supplied project plus global by default; project is exact, global account-wide."""
+        return _gateway_for_current_request().list_memories(limit, scope, app_id)
 
     @server.tool()
     def get_memory(memory_id: str) -> dict[str, Any]:
@@ -44,9 +48,14 @@ def create_mcp_http_app():
         return _gateway_for_current_request().get_memory(memory_id)
 
     @server.tool()
-    def remember(content: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Remember one piece of information from a user-authored message."""
-        return _gateway_for_current_request().remember(content, metadata)
+    def remember(
+        content: str,
+        metadata: dict[str, Any] | None = None,
+        scope: str | None = None,
+        app_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Remember with a client-supplied project context, or use global for an account-wide memory."""
+        return _gateway_for_current_request().remember(content, metadata, scope, app_id)
 
     @server.tool()
     def update_memory(memory_id: str, content: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -50,7 +52,9 @@ def test_export_is_bounded_complete_deterministic_and_preserves_modes(tmp_path):
         "plugins/ram0/hooks/hooks.json",
         "plugins/ram0/hooks/codex-hooks.json",
         "plugins/ram0/bin/ram0",
+        "plugins/ram0/scripts/hook_entry.py",
         "plugins/ram0/scripts/mcp_stdio_adapter.py",
+        "plugins/ram0/scripts/project_scope.py",
         "plugins/ram0/scripts/ram0_cli.py",
         "README.md",
         "LICENSE",
@@ -70,9 +74,38 @@ def test_export_is_bounded_complete_deterministic_and_preserves_modes(tmp_path):
     assert manifest["source_commit"] == "a" * 40
     assert manifest["plugin"] == "ram0"
     assert manifest["marketplace"] == "ram0-plugins"
-    assert manifest["version"] == "0.1.1"
+    assert manifest["version"] == "0.1.2"
     assert list(manifest["files"]) == sorted(manifest["files"])
     assert "source-manifest.json" not in manifest["files"]
+
+
+def test_exported_lifecycle_imports_resolve_without_source_tree_pythonpath(tmp_path):
+    output = tmp_path / "marketplace"
+    output.mkdir()
+    export_marketplace(REPOSITORY, output, "d" * 40)
+
+    scripts = output / "plugins" / "ram0" / "scripts"
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            (
+                "import sys; "
+                f"sys.path.insert(0, {str(scripts)!r}); "
+                "import hook_entry, memory_capture, project_scope"
+            ),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_export_rejects_nonempty_output_missing_source_and_escaping_symlink(tmp_path):
