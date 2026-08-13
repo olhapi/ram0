@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Modified for Ram0; see NOTICE and repository history.
 """Deterministic, local-only selection for Ram0 automatic retrieval and capture."""
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from hook_entry import project_scope_context, resolve_hook_project
 from ram0_client import Ram0Client, Ram0ClientError
 from ram0_settings import load_settings
 
@@ -124,7 +126,7 @@ _DECLARATIVE_BODY = re.compile(
     r"(?P<subject>[A-Za-z0-9_./()'-]+(?:\s+[A-Za-z0-9_./()'-]+){0,16})\s+"
     r"(?:is|are|was|were|has|have|uses?|requires?|depends?|runs?|executes?|derives?|keeps?|stores?|returns?|"
     r"accepts?|rejects?|supports?|allows?|prevents?|remains?|starts?|fails?|succeeds?|resolves?|contains?|"
-    r"matches?|selects?|loads?|writes?|reads?|sends?|retrieves?|captures?|preserves?|identifies?|belongs?|"
+    r"matches?|selects?|loads?|writes?|reads?|sends?|retrieves?|captures?|preserves?|identifies?|belongs?|stays?|"
     r"includes?|excludes?|provides?|passes?|completed?|changed?|occurred|handles?|escapes?)\b"
     r"[^{}\[\]<>`\\]+$",
     re.IGNORECASE,
@@ -292,6 +294,7 @@ def inject_search_context(
     text: str,
     client: Any,
     *,
+    app_id: str,
     purpose: str = "prompt",
     limit: int = MAX_CONTEXT_ITEMS,
     sensitive_values: tuple[str, ...] = (),
@@ -300,7 +303,11 @@ def inject_search_context(
     """Return compact labelled context, failing open on every adapter failure."""
     try:
         memories = _memory_texts(
-            client.search(safe_retrieval_query(text, purpose=purpose), limit=limit),
+            client.search(
+                safe_retrieval_query(text, purpose=purpose),
+                limit=limit,
+                app_id=app_id,
+            ),
             limit,
             sensitive_values,
             proof_key,
@@ -347,6 +354,7 @@ def capture_durable(
     text: str,
     client: Any,
     *,
+    app_id: str,
     state_dir: Path | None = None,
     source: str = "stop",
     scope: str = "default",
@@ -355,7 +363,7 @@ def capture_durable(
 ) -> int:
     """Store new safe candidates only; record a digest only after a successful add."""
     directory = _state_directory(state_dir)
-    scope_digest = hashlib.sha256(scope.encode()).hexdigest()[:16]
+    scope_digest = hashlib.sha256(f"{scope}\0{app_id}".encode()).hexdigest()[:16]
     digest_file = directory / f"captured-memory-hashes-{scope_digest}"
     lock_file = directory / f".{digest_file.name}.lock"
     with _capture_lock(lock_file):
@@ -378,6 +386,7 @@ def capture_durable(
                     client.add_durable(
                         candidate.memory_text,
                         metadata,
+                        app_id=app_id,
                     )
                 except (Ram0ClientError, ValueError, TypeError, OSError):
                     continue
@@ -493,8 +502,12 @@ def main() -> int:
     client, settings = _client()
     if client is None:
         return 0
+    project = resolve_hook_project(event)
     if args.operation == "search":
+        project_context = project_scope_context(project)
         if not settings.retrieval_enabled:
+            if args.purpose != "error":
+                print(project_context)
             return 0
         text = _event_text(event, args.purpose)
         if args.purpose == "error" and not re.search(
@@ -504,12 +517,12 @@ def main() -> int:
         context = inject_search_context(
             text,
             client,
+            app_id=project.app_id,
             purpose=args.purpose,
             sensitive_values=(settings.api_key,),
             proof_key=settings.api_key,
         )
-        if context:
-            print(context)
+        print(f"{project_context}\n{context}" if context else project_context)
         return 0
     if settings.capture_enabled:
         text = _event_text(event, args.source)
@@ -521,6 +534,7 @@ def main() -> int:
         capture_durable(
             text,
             client,
+            app_id=project.app_id,
             source=args.source,
             scope=settings.owner_fingerprint,
             sensitive_values=(settings.api_key,),

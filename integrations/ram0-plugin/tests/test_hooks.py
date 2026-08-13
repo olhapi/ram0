@@ -140,6 +140,110 @@ def _run_cursor(name: str, payload: dict, *, ram0_server, tmp_path) -> dict:
     return json.loads(result.stdout)
 
 
+def _git_repo(path: Path, remote: str) -> Path:
+    path.mkdir()
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "remote", "add", "origin", remote], check=True)
+    return path
+
+
+def _run_hook(
+    name: str,
+    payload: dict,
+    *,
+    ram0_server,
+    state_dir: Path,
+    extra_environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    environment = {
+        **os.environ,
+        "RAM0_API_URL": ram0_server.url,
+        "RAM0_API_KEY": "ram0-test-key",
+        "RAM0_PLUGIN_DATA": str(state_dir),
+        **(extra_environment or {}),
+    }
+    return subprocess.run(
+        [str(ROOT / "scripts" / name)],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        check=True,
+        env=environment,
+    )
+
+
+def test_automatic_retrieval_uses_current_project_plus_global_without_host_details(ram0_server, tmp_path):
+    """Breaks if a hook omits current Git scope, widens recall, or exposes raw host context."""
+    repository = _git_repo(tmp_path / "checkout", "git@github.com:olhapi/ram0.git")
+
+    result = _run_hook(
+        "on_session_start.sh",
+        {"source": "startup", "cwd": str(repository)},
+        ram0_server=ram0_server,
+        state_dir=tmp_path / "state",
+    )
+
+    request = json.loads(ram0_server.requests[-1]["body"])
+    assert request["filters"] == {"OR": [{"app_id": "github.com-olhapi-ram0"}, {"app_id": None}]}
+    assert "user_id" not in request["filters"]
+    assert "github.com-olhapi-ram0" in result.stdout
+    assert str(repository) not in result.stdout
+    assert "git@github.com:olhapi/ram0.git" not in result.stdout
+
+
+def test_automatic_capture_writes_current_project_without_scope_metadata(ram0_server, tmp_path):
+    """Breaks if automatic capture becomes global or stores project/host context as metadata."""
+    repository = _git_repo(tmp_path / "checkout", "git@github.com:olhapi/ram0.git")
+
+    _run_hook(
+        "on_stop.sh",
+        {"cwd": str(repository), "last_assistant_message": "Decision: The adapter stays narrow."},
+        ram0_server=ram0_server,
+        state_dir=tmp_path / "state",
+    )
+
+    request = json.loads(ram0_server.requests[-1]["body"])
+    assert request["app_id"] == "github.com-olhapi-ram0"
+    assert not ({"user_id", "app_id", "cwd", "remote", "branch", "api_key"} & set(request["metadata"]))
+
+
+def test_project_context_remains_available_when_automatic_retrieval_is_disabled(ram0_server, tmp_path):
+    """Breaks if disabling auto-recall also removes the project app ID required by manual skills."""
+    repository = _git_repo(tmp_path / "checkout", "git@github.com:olhapi/ram0.git")
+
+    result = _run_hook(
+        "on_session_start.sh",
+        {"source": "startup", "cwd": str(repository)},
+        ram0_server=ram0_server,
+        state_dir=tmp_path / "state",
+        extra_environment={"RAM0_MEMORY_RETRIEVAL": "false"},
+    )
+
+    assert "Current Ram0 app_id: github.com-olhapi-ram0" in result.stdout
+    assert ram0_server.requests == []
+
+
+def test_each_hook_invocation_resolves_its_event_cwd(ram0_server, tmp_path):
+    """Breaks if a long-lived session reuses stale project context after the host cwd changes."""
+    first = _git_repo(tmp_path / "first", "git@github.com:olhapi/first.git")
+    second = _git_repo(tmp_path / "second", "git@github.com:olhapi/second.git")
+    state_dir = tmp_path / "state"
+
+    for repository in (first, second):
+        _run_hook(
+            "on_user_prompt.sh",
+            {"cwd": str(repository), "prompt": "architecture"},
+            ram0_server=ram0_server,
+            state_dir=state_dir,
+        )
+
+    payloads = [json.loads(request["body"]) for request in ram0_server.requests]
+    assert [payload["filters"]["OR"][0]["app_id"] for payload in payloads] == [
+        "github.com-olhapi-first",
+        "github.com-olhapi-second",
+    ]
+
+
 def test_cursor_prompt_and_session_wrappers_emit_cursor_json(ram0_server, tmp_path):
     """Breaks if shared plain/XML output is returned directly to Cursor."""
     ram0_server.response = {"results": [_trusted_memory("Decision: The hooks remain host-specific.")]}
