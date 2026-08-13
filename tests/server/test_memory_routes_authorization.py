@@ -280,15 +280,18 @@ def test_list_and_search_are_scoped_to_the_authenticated_owner(route_client):
     assert listed.status_code == 200, listed.text
     assert searched.status_code == 200, searched.text
     assert memory.get_all.call_args.kwargs["filters"] == {
-        "user_id": str(jwt_account.id),
-        "agent_id": "assistant",
-        "categories": {"in": ["work"]},
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"agent_id": "assistant"},
+            {"categories": {"in": ["work"]}},
+        ]
     }
     assert memory.search.call_args.kwargs["filters"] == {
-        "user_id": str(jwt_account.id),
-        "agent_id": "assistant",
-        "run_id": "run-1",
-        "categories": {"in": ["work"]},
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"agent_id": "assistant", "run_id": "run-1"},
+            {"categories": {"in": ["work"]}},
+        ]
     }
 
 
@@ -304,8 +307,10 @@ def test_search_with_app_id_never_loses_owner_filter(route_client):
 
     assert response.status_code == 200, response.text
     assert memory.search.call_args.kwargs["filters"] == {
-        "user_id": str(jwt_account.id),
-        "app_id": "github.com-olhapi-ram0",
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"app_id": "github.com-olhapi-ram0"},
+        ]
     }
 
 
@@ -331,8 +336,32 @@ def test_list_and_delete_all_compose_app_id_with_owner(route_client):
     )
 
 
-def test_search_accepts_matching_top_level_and_filter_app_id(route_client):
-    """Equivalent transports should compose one trusted project selector beneath the owner."""
+@pytest.mark.parametrize(
+    "structured_filter",
+    [
+        {"OR": [{"app_id": "github.com-olhapi-ram0"}, {"app_id": None}]},
+        {"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]},
+        {"NOT": [{"app_id": "archived-project"}]},
+    ],
+)
+def test_search_preserves_structured_app_filters_beneath_owner(route_client, structured_filter):
+    """REST search must preserve hosted-style app predicates inside the account boundary."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.post(
+        "/search",
+        headers={"Authorization": "Bearer account-jwt"},
+        json={"query": "private", "filters": structured_filter},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.search.call_args.kwargs["filters"] == {
+        "AND": [{"user_id": str(jwt_account.id)}, structured_filter]
+    }
+
+
+def test_search_composes_top_level_app_id_with_structured_app_filter(route_client):
+    """Both app transports narrow with AND instead of conflicting or overriding."""
     client, memory, _, _ = route_client
 
     response = client.post(
@@ -341,16 +370,27 @@ def test_search_accepts_matching_top_level_and_filter_app_id(route_client):
         json={
             "query": "private",
             "app_id": "github.com-olhapi-ram0",
-            "filters": {"app_id": "github.com-olhapi-ram0"},
+            "filters": {"OR": [{"app_id": "github.com-olhapi-other"}, {"app_id": None}]},
         },
     )
 
     assert response.status_code == 200, response.text
-    assert memory.search.call_args.kwargs["filters"]["app_id"] == "github.com-olhapi-ram0"
+    clauses = memory.search.call_args.kwargs["filters"]["AND"]
+    assert clauses[1:] == [
+        {"app_id": "github.com-olhapi-ram0"},
+        {"OR": [{"app_id": "github.com-olhapi-other"}, {"app_id": None}]},
+    ]
 
 
-def test_search_rejects_conflicting_top_level_and_filter_app_id(route_client):
-    """Conflicting project selectors must not let one transport override the other."""
+@pytest.mark.parametrize(
+    "structured_filter",
+    [
+        {"OR": [{"app_id": "../checkout"}]},
+        {"NOT": [{"app_id": {"in": ["valid", "has spaces"]}}]},
+    ],
+)
+def test_search_rejects_invalid_nested_app_id(route_client, structured_filter):
+    """Malformed app selectors return 422 even when buried in boolean operators."""
     client, memory, _, _ = route_client
 
     response = client.post(
@@ -358,13 +398,29 @@ def test_search_rejects_conflicting_top_level_and_filter_app_id(route_client):
         headers={"Authorization": "Bearer account-jwt"},
         json={
             "query": "private",
-            "app_id": "github.com-olhapi-ram0",
-            "filters": {"app_id": "github.com-olhapi-other"},
+            "filters": structured_filter,
         },
     )
 
     assert response.status_code == 422
     memory.search.assert_not_called()
+
+
+def test_two_accounts_wrap_the_same_structured_app_filter_with_distinct_owners(route_client):
+    """App predicates organize results; only the outer authenticated owner isolates accounts."""
+    client, memory, jwt_account, api_key_account = route_client
+    filters = {"OR": [{"app_id": "shared-project"}, {"app_id": None}]}
+    body = {"query": "private", "filters": filters}
+
+    first = client.post("/search", headers={"Authorization": "Bearer account-jwt"}, json=body)
+    second = client.post("/search", headers={"X-API-Key": "account-api-key"}, json=body)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert [call.kwargs["filters"] for call in memory.search.call_args_list] == [
+        {"AND": [{"user_id": str(jwt_account.id)}, filters]},
+        {"AND": [{"user_id": str(api_key_account.id)}, filters]},
+    ]
 
 
 def test_app_id_is_preserved_in_collection_responses(route_client):

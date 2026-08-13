@@ -52,6 +52,38 @@ def reject_client_owner(value: object) -> None:
             pending.extend((nested_value, depth + 1) for nested_value in current)
 
 
+def _validate_structured_filters(value: object) -> None:
+    """Validate app predicates and reject owner predicates at any safe structure depth."""
+    pending = [(value, 0, False)]
+    while pending:
+        current, depth, app_value = pending.pop()
+        if depth > _MAX_CLIENT_STRUCTURE_DEPTH:
+            raise HTTPException(status_code=422, detail="Request structure is too deeply nested.")
+        if app_value:
+            if current is None:
+                continue
+            if isinstance(current, str):
+                try:
+                    validate_app_id(current)
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+                continue
+            if isinstance(current, Mapping):
+                pending.extend((nested, depth + 1, True) for nested in current.values())
+                continue
+            if isinstance(current, Sequence) and not isinstance(current, (str, bytes)):
+                pending.extend((nested, depth + 1, True) for nested in current)
+                continue
+            raise HTTPException(status_code=422, detail="app_id contains an invalid project identifier.")
+        if isinstance(current, Mapping):
+            if "user_id" in current:
+                raise HTTPException(status_code=422, detail="user_id is assigned from the authenticated account.")
+            for key, nested in current.items():
+                pending.append((nested, depth + 1, key == "app_id"))
+        elif isinstance(current, Sequence) and not isinstance(current, (str, bytes)):
+            pending.extend((nested, depth + 1, False) for nested in current)
+
+
 def owner_filters(
     principal: MemoryPrincipal,
     *,
@@ -62,28 +94,23 @@ def owner_filters(
 ) -> dict[str, object]:
     """Combine optional filters with the authenticated account owner and project scope."""
     client_filters = dict(extra) if extra is not None else {}
-    filter_app_id = client_filters.pop("app_id", None)
-    reject_client_owner(client_filters)
+    _validate_structured_filters(client_filters)
 
-    validated_app_id = validate_app_id(app_id) if app_id is not None else None
-    if filter_app_id is not None:
-        try:
-            validated_filter_app_id = validate_app_id(filter_app_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if validated_app_id is not None and validated_filter_app_id != validated_app_id:
-            raise HTTPException(status_code=422, detail="Conflicting app_id selectors.")
-        validated_app_id = validated_filter_app_id
-
-    filters: dict[str, object] = {"user_id": principal.owner_id}
+    trusted_filters: dict[str, object] = {}
     if agent_id is not None:
-        filters["agent_id"] = agent_id
+        trusted_filters["agent_id"] = agent_id
     if run_id is not None:
-        filters["run_id"] = run_id
-    if validated_app_id is not None:
-        filters["app_id"] = validated_app_id
-    filters.update(client_filters)
-    return filters
+        trusted_filters["run_id"] = run_id
+    if app_id is not None:
+        trusted_filters["app_id"] = validate_app_id(app_id)
+
+    if client_filters:
+        clauses: list[dict[str, object]] = [{"user_id": principal.owner_id}]
+        if trusted_filters:
+            clauses.append(trusted_filters)
+        clauses.append(client_filters)
+        return {"AND": clauses}
+    return {"user_id": principal.owner_id, **trusted_filters}
 
 
 def require_owned_memory(memory_id: str, principal: MemoryPrincipal, memory: Any) -> OutputData:

@@ -396,8 +396,10 @@ def test_get_memories_repeated_categories_are_any_filter(client, mock_memory):
 
     assert response.status_code == 200, response.text
     assert mock_memory.get_all.call_args.kwargs["filters"] == {
-        "user_id": "u1",
-        "categories": {"in": ["billing", "health"]},
+        "AND": [
+            {"user_id": "u1"},
+            {"categories": {"in": ["billing", "health"]}},
+        ]
     }
 
 
@@ -409,7 +411,12 @@ def test_account_list_repeated_categories_are_any_filter(client, mock_memory):
 
     assert response.status_code == 200, response.text
     assert mock_memory.get_all.call_args.kwargs == {
-        "filters": {"user_id": "u1", "categories": {"in": ["billing", "health"]}},
+        "filters": {
+            "AND": [
+                {"user_id": "u1"},
+                {"categories": {"in": ["billing", "health"]}},
+            ]
+        },
         "top_k": 7,
         "show_expired": False,
     }
@@ -421,7 +428,9 @@ def test_search_passes_nested_category_filter_to_core_unchanged(client, mock_mem
     response = client.post("/search", json={"query": "invoice", "filters": filters})
 
     assert response.status_code == 200, response.text
-    assert mock_memory.search.call_args.kwargs["filters"] == {"user_id": "u1", **filters}
+    assert mock_memory.search.call_args.kwargs["filters"] == {
+        "AND": [{"user_id": "u1"}, filters]
+    }
 
 
 def test_account_list_emits_category_fields_once(client, mock_memory):

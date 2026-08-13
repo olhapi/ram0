@@ -15,6 +15,7 @@
 
 - `user_id` remains server-derived from the authenticated account UUID on every surface.
 - `app_id` is an organization filter inside one account, never an ownership or authorization boundary.
+- Match hosted Mem0 structured-filter behavior for `app_id`: allow caller-authored `AND`/`OR`/`NOT` expressions after recursively validating app IDs, while recursively rejecting every caller-provided `user_id` and wrapping the whole expression beneath the authenticated owner.
 - Default reads return current-project plus global; project reads return current-project only; global reads return all memories owned by the account.
 - Default and project writes require and store current `app_id`; global writes omit `app_id`.
 - Existing memories with no `app_id` are global; do not rewrite them.
@@ -146,7 +147,7 @@ If Qdrant/pgvector represents missing fields differently from `{app_id: None}`, 
 
 - [ ] **Step 4: Extend owner filter composition without permitting owner override**
 
-Add optional `app_id` to `owner_filters()` in `server/memory_authorization.py`, validated through `validate_app_id()`. Keep `reject_client_owner(extra)` and add the app clause before `extra`; reject `app_id` inside `extra` so callers cannot replace the trusted argument.
+Add optional `app_id` to `owner_filters()` in `server/memory_authorization.py`, validated through `validate_app_id()`. Keep recursive rejection of `user_id`. Permit `app_id` inside structured `extra` filters, recursively validate every encountered app value, and compose the complete caller filter beneath the server-derived owner. When both trusted top-level `app_id` and filter `app_id` are supplied, combine them with `AND` rather than treating the filter as ownership input.
 
 Add tests proving `user_id` is always present, `app_id` can only narrow, and nested client `user_id` remains rejected.
 
@@ -230,7 +231,7 @@ def test_search_with_app_id_never_loses_owner_filter(client, memory, auth_header
     }
 ```
 
-Also cover invalid/metadata `app_id` as 422, list/delete-all owner composition, returned payload preservation, and two accounts sharing the same app label.
+Also cover invalid/metadata `app_id` as 422, nested `AND`/`OR`/`NOT` app filters composed beneath owner, list/delete-all owner composition, returned payload preservation, and two accounts sharing the same app label.
 
 - [ ] **Step 6: Run named REST tests to prove RED**
 
@@ -410,7 +411,7 @@ def add(self, memory_text: str, metadata=None, *, app_id: str | None, scope: str
 def add_durable(self, memory_text: str, metadata=None, *, app_id: str | None, scope: str | None = None) -> Any
 ```
 
-Default reads send the structured current-plus-global filter, project reads send the exact app filter, and global reads send no app filter. Default/project writes send top-level `app_id`; global writes omit it. Remove `app_id` from the generic reserved-body rejection only for these trusted top-level constructors; keep it forbidden recursively in user metadata.
+Default reads send the Mem0-style structured current-plus-global `app_id` filter, project reads send the exact app filter, and global reads send no app filter. Default/project writes send top-level `app_id`; global writes omit it. Remove `app_id` from the generic reserved-body rejection only for trusted top-level constructors and structured filters; keep it forbidden recursively in user metadata. Convenience scope arguments may be sent when available, but must compile to the same structured-filter semantics rather than replacing or restricting them.
 
 - [ ] **Step 5: Run plugin resolver/client tests and commit**
 
