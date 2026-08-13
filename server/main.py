@@ -1,6 +1,7 @@
 # Modified for Ram0; see NOTICE and repository history.
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -555,6 +556,7 @@ def get_all_memories(
     run_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     app_id: Optional[str] = None,
+    filters: Optional[str] = Query(None, description="JSON object containing structured memory filters."),
     categories: Optional[List[str]] = Query(None),
     top_k: Optional[int] = Query(None, ge=0, le=ALL_MEMORIES_LIMIT),
     show_expired: bool = Query(False),
@@ -563,9 +565,18 @@ def get_all_memories(
     """Retrieve memories belonging to the authenticated account."""
     try:
         reject_client_owner({"user_id": user_id} if user_id is not None else None)
-        extra = {}
+        extra: Dict[str, Any] = {}
+        if filters is not None:
+            try:
+                parsed_filters = json.loads(filters)
+            except (json.JSONDecodeError, TypeError):
+                raise HTTPException(status_code=422, detail="filters must be a JSON object.") from None
+            if not isinstance(parsed_filters, dict):
+                raise HTTPException(status_code=422, detail="filters must be a JSON object.")
+            extra = parsed_filters
         if categories is not None:
-            extra["categories"] = {"in": categories}
+            category_filter = {"categories": {"in": categories}}
+            extra = {"AND": [extra, category_filter]} if extra else category_filter
         filters = owner_filters(
             principal,
             agent_id=agent_id,

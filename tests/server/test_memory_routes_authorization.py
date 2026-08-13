@@ -340,6 +340,92 @@ def test_list_and_delete_all_compose_app_id_with_owner(route_client):
     "structured_filter",
     [
         {"OR": [{"app_id": "github.com-olhapi-ram0"}, {"app_id": None}]},
+        {"AND": [{"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]}]},
+    ],
+)
+def test_list_accepts_json_structured_app_filters_beneath_owner(route_client, structured_filter):
+    """GET list must carry hosted-style project expressions beneath account ownership."""
+    client, memory, jwt_account, _ = route_client
+
+    response = client.get(
+        "/memories",
+        params={"filters": __import__("json").dumps(structured_filter)},
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.get_all.call_args.kwargs["filters"] == {
+        "AND": [{"user_id": str(jwt_account.id)}, structured_filter]
+    }
+
+
+@pytest.mark.parametrize("filters", ["{not-json", "[]", '"project-a"', "null"])
+def test_list_rejects_invalid_or_non_object_json_filters(route_client, filters):
+    """Malformed and non-object query filters return a stable client error, never a 500."""
+    client, memory, _, _ = route_client
+
+    response = client.get(
+        "/memories",
+        params={"filters": filters},
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "filters must be a JSON object."}
+    memory.get_all.assert_not_called()
+
+
+def test_list_rejects_hidden_user_id_in_json_filters(route_client):
+    """JSON transport must retain recursive owner rejection at arbitrary boolean depth."""
+    client, memory, _, _ = route_client
+    structured_filter = {"OR": [{"app_id": "project-a"}, {"NOT": [{"user_id": "victim"}]}]}
+
+    response = client.get(
+        "/memories",
+        params={"filters": __import__("json").dumps(structured_filter)},
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 422
+    memory.get_all.assert_not_called()
+
+
+def test_list_combines_json_scalar_and_category_filters_with_and(route_client):
+    """Legacy scalar/category filters and structured filters must all narrow under one owner."""
+    client, memory, jwt_account, _ = route_client
+    structured_filter = {"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]}
+
+    response = client.get(
+        "/memories",
+        params=[
+            ("filters", __import__("json").dumps(structured_filter)),
+            ("app_id", "current-project"),
+            ("agent_id", "assistant"),
+            ("categories", "work"),
+            ("categories", "personal"),
+        ],
+        headers={"Authorization": "Bearer account-jwt"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert memory.get_all.call_args.kwargs["filters"] == {
+        "AND": [
+            {"user_id": str(jwt_account.id)},
+            {"agent_id": "assistant", "app_id": "current-project"},
+            {
+                "AND": [
+                    structured_filter,
+                    {"categories": {"in": ["work", "personal"]}},
+                ]
+            },
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "structured_filter",
+    [
+        {"OR": [{"app_id": "github.com-olhapi-ram0"}, {"app_id": None}]},
         {"OR": [{"app_id": "project-a"}, {"app_id": "project-b"}]},
         {"NOT": [{"app_id": "archived-project"}]},
     ],
