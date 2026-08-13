@@ -1,8 +1,11 @@
+// Modified for Ram0; see NOTICE and repository history.
+
 export interface Memory {
   id: string;
   memory: string;
   user_id?: string;
   agent_id?: string;
+  app_id?: string;
   created_at?: string;
   updated_at?: string;
   categories: string[] | null;
@@ -117,7 +120,7 @@ export interface ApiRequestLog {
   auth_type: string;
 }
 
-export type EntityType = "user" | "agent" | "run";
+export type EntityType = "app" | "agent" | "run";
 
 export interface Entity {
   id: string;
