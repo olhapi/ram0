@@ -79,6 +79,20 @@ test = [
     "pytest>=8.2.2",
     "pytest-mock>=3.14.0",
     "pytest-asyncio>=0.23.7",
+    # Ram0 server tests live under tests/server and are collected by the root
+    # Hatch test command. Keep their runtime libraries development-only.
+    "fastapi==0.115.8",
+    "fastmcp>=2.14,<3",
+    "pydantic[email]>=2.11.7,<3",
+    "python-dotenv==1.2.2",
+    "psycopg>=3.2.8",
+    "psycopg-pool>=3.2.6,<4.0.0",
+    "alembic>=1.13,<2.0",
+    "passlib[bcrypt]>=1.7,<2.0",
+    "bcrypt==4.0.1",
+    "python-jose[cryptography]>=3.3,<4.0",
+    "cryptography>46.0.4",
+    "slowapi>=0.1.9,<1.0",
 ]
 dev = [
     "ruff==0.16.0",
