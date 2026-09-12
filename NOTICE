@@ -8,8 +8,7 @@ self-hosted deployment assets. Modified upstream source files identify the
 fork in a short header and are traceable through repository history.
 
 The self-hosted supermemory-server executable is downloaded from official
-Supermemory GitHub releases during the engine image build. It is not source
-code from this repository. Its exact version and SHA-256 digest are pinned in
+Supermemory GitHub releases during the engine image build. It is not source code from this repository. Its exact version and SHA-256 digest are pinned in
 deploy/supermemory/Dockerfile.engine.
 
 The Supermemory source tree is MIT licensed, but the downloaded engine release
