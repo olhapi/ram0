@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: 2026 Ram0 contributors
+# SPDX-License-Identifier: MIT
+
+name: ${RAM0_COMPOSE_PROJECT:-ram0-supermemory}
+
+services:
+  engine:
+    image: ${RAM0_ENGINE_IMAGE:?RAM0_ENGINE_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      SUPERMEMORY_DISABLE_TELEMETRY: "1"
+    volumes:
+      - ${RAM0_SUPERMEMORY_DATA_DIR}:/data
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  gateway:
+    image: ${RAM0_GATEWAY_IMAGE:?RAM0_GATEWAY_IMAGE is required}
+    restart: unless-stopped
+    depends_on:
+      - engine
+    env_file:
+      - ${RAM0_RUNTIME_ENV_FILE}
+    environment:
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: "8000"
+      SUPERMEMORY_ENGINE_URL: http://engine:6767
+      SUPERMEMORY_PERSONAL_CONTAINER: personal
+    volumes:
+      - ${RAM0_MIGRATION_DIR}:/migration
+    ports:
+      - ${RAM0_HOST_IP}:${RAM0_API_PORT:-18888}:8000
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  graph:
+    image: ${RAM0_GRAPH_IMAGE:?RAM0_GRAPH_IMAGE is required}
+    restart: unless-stopped
+    depends_on:
+      - engine
+    env_file:
+      - ${RAM0_RUNTIME_ENV_FILE}
+    environment:
+      SUPERMEMORY_API_BASE_URL: http://engine:6767
+    ports:
+      - ${RAM0_HOST_IP}:${RAM0_GRAPH_PORT:-13000}:3000
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  internal:
+    driver: bridge
