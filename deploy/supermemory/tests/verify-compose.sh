@@ -20,6 +20,8 @@ grep -Fq 'pg_dump' "$DEPLOY"
 grep -Fq 'pg_restore --list' "$DEPLOY"
 grep -Fq 'ram0_postgres' "$DEPLOY"
 
+bash "$ROOT/deploy/supermemory/tests/test-deploy-unraid.sh"
+
 if grep -R -E 'docker\.sock|privileged:[[:space:]]*true|network_mode:[[:space:]]*host|compose down -v|docker compose down -v' \
   "$ROOT/deploy/supermemory" --exclude='verify-compose.sh'; then
   echo 'unsafe deployment setting found' >&2

@@ -33,6 +33,11 @@ validate_digest_ref() {
   [[ ${1:-} =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
 }
 
+legacy_application_database() {
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' ram0_api \
+    | awk -F= '$1 == "APP_DB_NAME" {print $2; exit}'
+}
+
 compose_for() {
   local project=$1 host=$2 api_port=$3 graph_port=$4
   shift 4
@@ -129,10 +134,9 @@ backup_legacy() {
   mkdir -m 700 "$BACKUP_DIR"
   postgres_user=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' ram0_postgres \
     | awk -F= '$1 == "POSTGRES_USER" {print $2; exit}')
-  postgres_db=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' ram0_postgres \
-    | awk -F= '$1 == "POSTGRES_DB" {print $2; exit}')
+  postgres_db=$(legacy_application_database)
   postgres_user=${postgres_user:-postgres}
-  postgres_db=${postgres_db:-mem0_app}
+  [[ -n $postgres_db ]] || fail 'APP_DB_NAME is missing from ram0_api'
   docker exec ram0_postgres pg_dump -U "$postgres_user" -d "$postgres_db" --format=custom >"$BACKUP_DIR/ram0.dump"
   [[ -s $BACKUP_DIR/ram0.dump ]] || fail 'PostgreSQL backup is empty'
   docker exec -i ram0_postgres pg_restore --list <"$BACKUP_DIR/ram0.dump" >/dev/null
