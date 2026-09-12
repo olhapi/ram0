@@ -541,21 +541,46 @@ behind upstream, and all deployment/compliance checks passing.
 
 - [ ] **Step 1: Add an “Existing Ram0 workstations” section**
 
-Document this sequence:
+Document this operational order. Before `--force`, retain the old checkout and
+back up any existing configuration into a separate mode-`0700` directory:
 
 ```bash
-git clone https://github.com/olhapi/ram0.git ~/projects/ram0-supermemory
-cd ~/projects/ram0-supermemory
+config_dir="$HOME/.config/ram0-supermemory"
+backup_dir="$HOME/.config/ram0-supermemory-backup-$(date +%Y%m%d%H%M%S)"
+if [ -d "$config_dir" ]; then
+  (umask 077; mkdir "$backup_dir")
+  cp -pR "$config_dir"/. "$backup_dir"/
+fi
+```
+
+Require users to securely create or edit
+`$HOME/.config/ram0-supermemory/credentials.env` with an
+`export SUPERMEMORY_API_KEY=...` assignment in a trusted local editor, never on
+a command line or in shell history. The file must be mode `0600`; do not claim
+the installer creates or sources it. Then document this sequence, with quoted
+paths and portable shell sourcing after the user saves that file:
+
+```bash
+config_dir="$HOME/.config/ram0-supermemory"
+credentials_file="$config_dir/credentials.env"
+mkdir -p "$config_dir"
+chmod 700 "$config_dir"
+touch "$credentials_file"
+chmod 600 "$credentials_file"
+git clone https://github.com/olhapi/ram0.git "$HOME/projects/ram0-supermemory"
+cd "$HOME/projects/ram0-supermemory"
 node integrations/coding-agents/install.mjs \
   --base-url https://brain-api.olhapi.com \
   --force
-source ~/.config/ram0-supermemory/activate.sh
+. "$credentials_file"
+. "$config_dir/env.sh"
 ```
 
-State that users must securely transfer or recreate the mode-`0600`
-`credentials.env`, leave their old checkout/config untouched until verification,
-remove `ram0@ram0-plugins` only after the new status check passes, and restart
-Claude Code/Codex from an activated shell.
+State that Claude Code and Codex must be started or restarted from that shell,
+and `/mcp` must show `supermemory` connected in each client (with
+`/supermemory:status` in Claude Code). Retain the old checkout and the backup
+until those status checks pass; only then remove the legacy
+`ram0@ram0-plugins` marketplace entry.
 
 - [ ] **Step 2: Run documentation and integration tests**
 

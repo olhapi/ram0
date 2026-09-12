@@ -28,13 +28,10 @@ The installer pins `codex-supermemory` 1.0.17, adds the official
 non-secret environment helper and an installation marker under
 `~/.config/ram0-supermemory/`.
 
-Put the gateway key in your preferred secret-backed shell setup, then source the
-generated helper before starting either client:
-
-```bash
-export SUPERMEMORY_API_KEY='the-key-from-the-Unraid-runtime-env'
-source ~/.config/ram0-supermemory/env.sh
-```
+Put the gateway key in a separate credentials file using your preferred
+secret-backed local editor, then source that file before the generated helper.
+The credentials file must export `SUPERMEMORY_API_KEY`; the installer neither
+creates nor sources it.
 
 The helper maps the one key into the environment names expected by the upstream
 Claude Code and Codex hooks. It also sends their automatic REST traffic to the
@@ -46,25 +43,53 @@ refresh the plugin installations or repair their registrations.
 
 ## Existing Ram0 workstations
 
-To migrate an existing workstation to the public Ram0 repository, use a new
-checkout and install the gateway integration there:
+To migrate an existing workstation to the public Ram0 repository, retain the
+old checkout. Before using `--force`, make a separate mode-`0700` backup of any
+existing integration configuration. This prevents the installer from replacing
+the only copy of its generated configuration:
 
 ```bash
-git clone https://github.com/olhapi/ram0.git ~/projects/ram0-supermemory
-cd ~/projects/ram0-supermemory
+config_dir="$HOME/.config/ram0-supermemory"
+backup_dir="$HOME/.config/ram0-supermemory-backup-$(date +%Y%m%d%H%M%S)"
+if [ -d "$config_dir" ]; then
+  (umask 077; mkdir "$backup_dir")
+  cp -pR "$config_dir"/. "$backup_dir"/
+fi
+```
+
+Keep that backup and the old checkout until the new clients have passed their
+status checks. Use a trusted local editor to securely create or update
+`$HOME/.config/ram0-supermemory/credentials.env` with an
+`export SUPERMEMORY_API_KEY=...` assignment. Do not place the key in a command
+line or shell history. Ensure the credentials file is mode `0600` before
+installing:
+
+```bash
+config_dir="$HOME/.config/ram0-supermemory"
+credentials_file="$config_dir/credentials.env"
+mkdir -p "$config_dir"
+chmod 700 "$config_dir"
+touch "$credentials_file"
+chmod 600 "$credentials_file"
+```
+
+After saving the credentials file, use a new checkout, run the installer, and
+source the user-managed credentials file before the generated helper:
+
+```bash
+git clone https://github.com/olhapi/ram0.git "$HOME/projects/ram0-supermemory"
+cd "$HOME/projects/ram0-supermemory"
 node integrations/coding-agents/install.mjs \
   --base-url https://brain-api.olhapi.com \
   --force
-source ~/.config/ram0-supermemory/activate.sh
+. "$credentials_file"
+. "$config_dir/env.sh"
 ```
 
-Securely transfer or recreate the mode-`0600`
-`~/.config/ram0-supermemory/credentials.env` file; never place its key in a
-command-line argument. Keep the old checkout and its configuration untouched
-until the new installation's status check succeeds. Only then remove the old
-`ram0@ram0-plugins` marketplace entry. Restart Claude Code and Codex from a
-shell where `activate.sh` has been sourced so both clients inherit the new
-credentials and gateway configuration.
+From that same shell, start or restart Claude Code and Codex. In each client,
+run `/mcp` and confirm `supermemory` is connected; in Claude Code, also run
+`/supermemory:status`. Only after those checks pass may you remove the legacy
+`ram0@ram0-plugins` marketplace entry.
 
 ## Verify
 
