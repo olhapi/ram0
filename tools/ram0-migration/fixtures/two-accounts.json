@@ -1,0 +1,39 @@
+[
+	{
+		"account": { "id": "account-a" },
+		"memories": {
+			"results": [
+				{
+					"id": "a-1",
+					"memory": "The user prefers concise output.",
+					"created_at": "2026-01-01T00:00:00Z",
+					"updated_at": "2026-01-02T00:00:00Z",
+					"categories": ["preferences"]
+				},
+				{
+					"id": "a-2",
+					"memory": "Project Atlas uses PostgreSQL.",
+					"app_id": "github.com-example-atlas",
+					"metadata": { "source": "manual" }
+				}
+			]
+		}
+	},
+	{
+		"account": { "id": "account-b" },
+		"memories": {
+			"results": [
+				{
+					"id": "b-7",
+					"memory": "The user prefers concise output.",
+					"created_at": "2026-02-01T00:00:00Z"
+				},
+				{
+					"id": "b-8",
+					"memory": "The user works in UTC.",
+					"metadata": { "confidence": 0.9 }
+				}
+			]
+		}
+	}
+]

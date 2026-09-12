@@ -329,6 +329,15 @@
       "name": "@repo/validation",
       "version": "0.0.0",
     },
+    "tools/ram0-migration": {
+      "name": "@ram0/migration",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/node": "^20.19.0",
+        "typescript": "5.8.3",
+        "vitest": "^3.2.4",
+      },
+    },
   },
   "overrides": {
     "@types/react": "^19.2.14",
@@ -1172,6 +1181,8 @@
     "@radix-ui/rect": ["@radix-ui/rect@1.1.1", "", {}, "sha512-HPwpGIzkl28mWyZqG52jiqDJ12waP11Pa1lGoiyUkIEuMLBP0oeK/C89esbXrxsky5we7dfd8U58nm0SgAWpVw=="],
 
     "@ram0/local-gateway": ["@ram0/local-gateway@workspace:apps/local-gateway"],
+
+    "@ram0/migration": ["@ram0/migration@workspace:tools/ram0-migration"],
 
     "@react-email/render": ["@react-email/render@1.1.2", "", { "dependencies": { "html-to-text": "^9.0.5", "prettier": "^3.5.3", "react-promise-suspense": "^0.3.4" }, "peerDependencies": { "react": "^18.0 || ^19.0 || ^19.0.0-rc", "react-dom": "^18.0 || ^19.0 || ^19.0.0-rc" } }, "sha512-RnRehYN3v9gVlNMehHPHhyp2RQo7+pSkHDtXPvg3s0GbzM9SQMW4Qrf8GRNvtpLC4gsI+Wt0VatNRUFqjvevbw=="],
 
