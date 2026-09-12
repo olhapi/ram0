@@ -6,7 +6,8 @@
 This integration combines the official Supermemory coding-agent hooks with the
 self-hosted Ram0 Supermemory gateway:
 
-- hooks inject relevant context and capture completed turns automatically;
+- a Ram0 read-only hook recalls `personal` and the derived repository container
+  at session start and on each prompt; upstream hooks retain automatic capture;
 - the gateway MCP lets either agent search, save, list, and inspect memory on demand;
 - Claude Code and Codex derive the same `repo_<name>__<hash>` container from a
   normalized Git remote, so clones and linked worktrees share project memory;
@@ -25,8 +26,10 @@ node integrations/coding-agents/install.mjs \
 The installer pins `codex-supermemory` 1.0.17, adds the official
 `supermemoryai/claude-supermemory` marketplace plugin, and points Codex's
 `supermemory` MCP registration directly at the local gateway. It writes only a
-non-secret environment helper and an installation marker under
-`~/.config/ram0-supermemory/`.
+non-secret environment helper, recall adapter, scope helper, and an installation
+marker under `~/.config/ram0-supermemory/`. It merges additive hook registrations
+into `~/.codex/hooks.json` and `~/.claude/settings.json`, preserving existing
+hooks and settings. It does not redirect repository writes into `personal`.
 
 Put the gateway key in a separate credentials file using your preferred
 secret-backed local editor, then source that file before the generated helper.
@@ -105,6 +108,13 @@ run `/mcp` and confirm `supermemory` is connected; in Claude Code, also run
 ## Verify
 
 Restart both clients after installation.
+
+In Codex, review and trust the new hook definitions when prompted; untrusted
+hooks are skipped. See the [official hook trust documentation](https://learn.chatgpt.com/docs/hooks).
+The adapter reads two explicit scopes only, redacts `<private>` prompt spans,
+and treats failures as best-effort without logging memory or credentials.
+Existing upstream hooks remain enabled; their legacy compatibility reads are
+separate from the adapter's deliberately narrow scope.
 
 In Codex, run `/mcp`; `supermemory` should be connected. In Claude Code, run
 `/mcp` and `/supermemory:status`. Then ask either agent:

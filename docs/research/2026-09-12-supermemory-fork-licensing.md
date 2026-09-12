@@ -31,7 +31,7 @@ before public distribution.
 | Upstream `NOTICE` obligation | The upstream tree does not contain a root `NOTICE`; MIT itself does not require a file named `NOTICE`. This fork's root `NOTICE` is an added attribution/change record, not an upstream-imposed requirement. | Optional but useful; keep it accurate |
 | Nested `skills/supermemory` component | This directory has its own Apache-2.0 license. Distribution requires a copy of that license, retention of applicable notices, and prominent change notices in modified files. Apache-2.0 expressly does not grant trademark use except customary origin descriptions. | Clear; nested license must travel with the component |
 | Prebuilt `supermemory-server` v0.0.6 binary | It is an official release asset associated with a tag whose repository root is MIT, and the tag's self-hosting docs call the binary open source. However, neither the release page, installer, nor manifest states an asset-specific license; the tagged repository tree does not expose identifiable server implementation source. | **Not sufficiently explicit for confident binary redistribution** |
-| Current runtime images | None of the three runtime Docker stages explicitly copies this repository's `LICENSE` or `NOTICE`. | Fix before distributing images |
+| Runtime notice baseline and remediation | At the initial review baseline, the three runtime stages omitted explicit root notice copies. The repository now copies `LICENSE` and `NOTICE` into all three runtime stages under `/usr/share/licenses/ram0/`. | Source-level remediation verified; binary-license and third-party inventory gates remain open |
 | Third-party dependency notices | The JavaScript bundles and base images include third-party code, but this review did not produce a complete dependency license inventory. | Audit before public distribution |
 
 ## 1. Upstream source license
@@ -171,9 +171,10 @@ the official, checksum-pinned asset directly rather than republishing that
 asset through a downstream registry. This is a risk-reduction recommendation,
 not a conclusion that the current use infringes.
 
-## 5. Runtime-container notice audit
+## 5. Runtime-container notice audit: historical baseline and remediation
 
-Static inspection found no explicit copy of the fork's root `LICENSE` or
+At the initial review baseline (before repository-rebase compliance changes),
+static inspection found no explicit copy of the fork's root `LICENSE` or
 `NOTICE` into any runtime image:
 
 - `deploy/supermemory/Dockerfile.engine` copies only the downloaded executable
@@ -183,16 +184,22 @@ Static inspection found no explicit copy of the fork's root `LICENSE` or
 - `apps/memory-graph-playground/Dockerfile` copies the Next.js standalone
   output, static assets, and public assets into its runtime stage.
 
-Even if some dependency licenses happen to survive framework bundling, these
-Dockerfiles do not guarantee inclusion of the upstream MIT notice or the
-fork's notice. Before distributing the images, explicitly copy at least:
+Those baseline Dockerfiles did not guarantee inclusion of the upstream MIT
+notice or the fork's notice. Remediation now present in all three runtime
+Dockerfiles is `COPY LICENSE NOTICE /usr/share/licenses/ram0/`, checked by
+`deploy/supermemory/tests/test-public-source-compliance.sh`. This is static
+source evidence, not a claim that previously built/deployed images contain
+those files. Distribution still requires:
 
 - the root `LICENSE` containing the upstream MIT copyright/permission notice;
 - the root `NOTICE` describing the fork; and
 - a generated third-party license inventory appropriate to each image.
 
-A conventional target is `/usr/share/licenses/<distribution>/`. Image labels
-can add provenance links but should not replace the required license text.
+The chosen root-notice target is `/usr/share/licenses/ram0/`. Image labels can
+add provenance links but should not replace the required license text. The
+third-party inventory and exact engine-binary license remain unresolved;
+engine-containing packages must remain private pending written clarification
+and the applicable notice audit.
 
 ## 6. Branding and trademark caution
 

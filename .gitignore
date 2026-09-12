@@ -9,11 +9,22 @@ node_modules
 .pnp.js
 
 # Local env files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env*
+*.env
+!.env.example
+!.env.*.example
+!*.env.example
+
+# Private migration artifacts and local review state (never source fixtures)
+exports*.json*
+*-exports.json*
+import-plan*.json
+import-journal*.jsonl
+write-freeze*.json
+!tools/ram0-migration/fixtures/two-accounts.json
+!tools/ram0-migration/fixtures/mapping.json
+!tools/ram0-migration/fixtures/exports.json
+.superpowers/
 
 # Testing
 coverage

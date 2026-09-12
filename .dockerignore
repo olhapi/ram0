@@ -4,3 +4,25 @@
 **/dist
 **/node_modules
 **/*.tsbuildinfo
+
+# Secrets and private operational artifacts, at every directory depth
+**/.env*
+**/*.env
+**/exports*.json*
+**/*-exports.json*
+**/import-plan*.json
+**/import-journal*.jsonl
+**/write-freeze*.json
+**/*.pem
+**/.sentryclirc
+**/.worktrees
+**/.superpowers
+**/.git
+
+# Explicit non-secret source examples and synthetic migration fixtures
+!**/.env.example
+!**/.env.*.example
+!**/*.env.example
+!tools/ram0-migration/fixtures/two-accounts.json
+!tools/ram0-migration/fixtures/mapping.json
+!tools/ram0-migration/fixtures/exports.json

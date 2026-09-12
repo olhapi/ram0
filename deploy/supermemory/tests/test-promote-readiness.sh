@@ -16,6 +16,7 @@ candidate_compose() { printf 'candidate:%s\n' "$*" >>"$EVENTS"; }
 docker() { printf 'docker:%s\n' "$*" >>"$EVENTS"; }
 live_compose() { printf 'live:%s\n' "$*" >>"$EVENTS"; }
 wait_for_url() { printf 'wait:%s\n' "$1" >>"$EVENTS"; }
+validate_write_freeze() { printf 'freeze:verified\n' >>"$EVENTS"; }
 
 SCRIPT_DIR=$TEST_DIR
 cat >"$SCRIPT_DIR/verify-stack.sh" <<'VERIFY'
@@ -34,6 +35,7 @@ RAM0_PUBLIC_GRAPH_URL=
 promote >/dev/null
 
 expected=$(cat <<'EXPECTED'
+freeze:verified
 candidate:stop graph gateway engine
 docker:stop ram0_dashboard ram0_api
 live:up -d --force-recreate engine gateway graph

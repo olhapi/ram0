@@ -93,9 +93,33 @@ validate_plan() {
   [[ $accounts -eq 2 ]] || fail "import plan must contain exactly two source accounts (found $accounts)"
 }
 
+validate_write_freeze() {
+  local attestation=$RAM0_MIGRATION_DIR/write-freeze.json state expected actual service field
+  [[ -f $attestation && -f $RAM0_MIGRATION_DIR/final-exports.json && -f $RAM0_MIGRATION_DIR/import-plan.json ]] \
+    || { fail 'final export and write-freeze attestation are required'; return 1; }
+  jq -e '.version == 1 and .otherWritersStopped == true' "$attestation" >/dev/null \
+    || { fail 'all legacy writers must be frozen'; return 1; }
+  for service in ram0_api ram0_dashboard; do
+    field=apiFinishedAt
+    [[ $service != ram0_dashboard ]] || field=dashboardFinishedAt
+    state=$(docker inspect --format '{{json .State}}' "$service") || return 1
+    expected=$(jq -er --arg field "$field" '.[$field] | select(type == "string" and length > 0)' "$attestation") || return 1
+    jq -e --arg stopped "$expected" '.Running == false and .FinishedAt == $stopped' <<<"$state" >/dev/null \
+      || { fail 'legacy writers resumed or do not match the final export freeze'; return 1; }
+  done
+  for field in export plan; do
+    service=final-exports.json
+    [[ $field != plan ]] || service=import-plan.json
+    expected=$(jq -er --arg field "${field}Sha256" '.[$field] | select(test("^[0-9a-f]{64}$"))' "$attestation") || return 1
+    actual=$(sha256sum "$RAM0_MIGRATION_DIR/$service")
+    [[ ${actual%% *} == "$expected" ]] || { fail 'final export/plan changed after freeze attestation'; return 1; }
+  done
+}
+
 preflight() {
   [[ $(id -u) -eq 0 ]] || fail 'run this deployment as root on Unraid'
-  for command in docker curl jq; do command -v "$command" >/dev/null || fail "$command is required"; done
+  for command in docker curl jq sha256sum; do command -v "$command" >/dev/null || fail "$command is required"; done
+  validate_write_freeze || return 1
   docker compose version >/dev/null
   docker info >/dev/null
   validate_sha "$RAM0_REVISION" || fail 'RAM0_REVISION must be a full lowercase Git SHA'
@@ -175,6 +199,7 @@ start_candidate() {
 }
 
 import_memories() {
+  validate_write_freeze || return 1
   candidate_compose run --rm --no-deps gateway \
     bun /app/migrate.js import \
     --plan /migration/import-plan.json \
@@ -190,12 +215,12 @@ import_memories() {
       bun /app/migrate.js verify \
       --plan /migration/import-plan.json \
       --base-url http://engine:6767 >/dev/null 2>&1; then
-      log "verified import journal and target counts for $completed records"
+      log "verified import journal and destination source coverage for $completed records"
       return
     fi
     sleep 2
   done
-  fail 'imported memory counts did not settle before the verification deadline'
+  fail 'imported source coverage did not settle before the verification deadline'
 }
 
 legacy_compose() {
@@ -207,6 +232,7 @@ legacy_compose() {
 }
 
 promote() {
+  validate_write_freeze || return 1
   candidate_compose stop graph gateway engine
   MUTATION_STARTED=true
   docker stop ram0_dashboard ram0_api >/dev/null
@@ -226,7 +252,7 @@ rollback() {
   live_compose stop graph gateway engine >/dev/null 2>&1 || true
   legacy_compose up -d --no-build postgres mem0 mem0-dashboard
   ROLLBACK_RUNNING=false
-  log "rollback complete; backup remains at $BACKUP_DIR"
+  log "rollback complete; backup remains at $BACKUP_DIR; write freeze is invalid, take a new final export before retrying"
 }
 
 on_error() {

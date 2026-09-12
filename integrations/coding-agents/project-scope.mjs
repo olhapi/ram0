@@ -5,12 +5,18 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { realpathSync } from "node:fs"
-import { basename, resolve } from "node:path"
+import { basename, dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 function git(args, cwd) {
 	try {
-		return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null
+		return (
+			execFileSync("git", args, {
+				cwd,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+			}).trim() || null
+		)
 	} catch {
 		return null
 	}
@@ -37,7 +43,9 @@ export function normalizeGitRemote(remoteUrl) {
 		}
 	} else {
 		const scpStyle = raw.match(/^(?:[^@/]+@)?([^:]+):(.+)$/)
-		normalized = scpStyle ? `${scpStyle[1].toLowerCase()}/${scpStyle[2]}` : `file:${resolve(raw)}`
+		normalized = scpStyle
+			? `${scpStyle[1].toLowerCase()}/${scpStyle[2]}`
+			: `file:${resolve(raw)}`
 	}
 
 	return normalized
@@ -58,14 +66,20 @@ function sanitizeRepositoryName(name) {
 }
 
 export function resolveRepositoryContainer(cwd = process.cwd()) {
-	const root = git(["rev-parse", "--show-toplevel"], cwd) ?? resolve(cwd)
+	let root = git(["rev-parse", "--show-toplevel"], cwd) ?? resolve(cwd)
+	const common = git(["rev-parse", "--git-common-dir"], cwd)
+	if (common && basename(resolve(cwd, common)) === ".git")
+		root = dirname(resolve(cwd, common))
 	const remote = git(["remote", "get-url", "origin"], root)
 	let repositoryName = basename(root) || "unknown"
 	let identity
 
 	if (remote) {
 		const display = remote.replace(/\/+$/, "").replace(/\.git$/i, "")
-		const separator = Math.max(display.lastIndexOf("/"), display.lastIndexOf(":"))
+		const separator = Math.max(
+			display.lastIndexOf("/"),
+			display.lastIndexOf(":"),
+		)
 		repositoryName = display.slice(separator + 1) || repositoryName
 		identity = normalizeGitRemote(remote)
 	}
@@ -81,6 +95,11 @@ export function resolveRepositoryContainer(cwd = process.cwd()) {
 	return `repo_${sanitizeRepositoryName(repositoryName)}__${shortHash(identity)}`
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	process.stdout.write(`${resolveRepositoryContainer(process.argv[2] ?? process.cwd())}\n`)
+if (
+	process.argv[1] &&
+	import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+	process.stdout.write(
+		`${resolveRepositoryContainer(process.argv[2] ?? process.cwd())}\n`,
+	)
 }

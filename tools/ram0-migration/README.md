@@ -33,10 +33,25 @@ SUPERMEMORY_API_KEY=... bun src/cli.ts verify \
   --base-url http://127.0.0.1:18888
 ```
 
-The journal is append-only. A retry skips acknowledged deterministic keys. A
-failed batch is reported but never journaled, so it remains eligible on the next
-run. Planner output and new journal files are mode 600.
+The journal is append-only and is not the destination authority. Every run lists
+the target containers and reconciles `ram0_migration_key` identities with exact
+source content and provenance. Lost responses, partial commits, and failed
+journal appends are reconciled on resume; only missing records are sent. An
+ambiguous duplicate identity, conflicting provenance, or journal record absent
+from the destination fails closed for manual inspection. Do not delete journals
+to bypass this check. Old imports without identity metadata require manual
+reconciliation, not a blind rerun. Planner output and new journals are mode 600.
 
-`verify` compares the expected record count in every target container with the
-v4 API's current count. The guarded deployment retries this while the engine
-settles and will not promote an incomplete import.
+Run exactly one importer against a quiescent destination, with no concurrent
+agent writes. Reconciliation uses complete direct-memory listings, not the
+eventually indexed search API. If the destination cannot provide authoritative
+listings, stop and reconcile it before retrying; do not infer missing writes from
+search results or counts. After a transport failure, wait for all in-flight
+engine writes to settle before retrying; a still-running request is another
+writer. Never delete or rewrite the source export/journal.
+
+`verify` reports the number of uniquely covered plan records in each container;
+duplicates, unrelated rows, changed text, and missing provenance do not count.
+The guarded deployment retries coverage checks and cannot promote an incomplete
+import. Before using import for cutover, follow the final write-freeze/export
+boundary in [the deployment runbook](../../deploy/supermemory/README.md).

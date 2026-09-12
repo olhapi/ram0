@@ -45,7 +45,13 @@ export interface ImportJournal {
 }
 
 export interface MemoryImportBackend {
-	createMemories(containerTag: string, records: ImportRecord[]): Promise<Array<{ key: string; id: string }>>
+	listMemories(
+		containerTag: string,
+	): Promise<import("./verify").DestinationMemory[]>
+	createMemories(
+		containerTag: string,
+		records: ImportRecord[],
+	): Promise<Array<{ key: string; id: string }>>
 }
 
 export interface ImportSummary {
