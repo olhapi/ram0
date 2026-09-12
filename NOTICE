@@ -11,3 +11,8 @@ The self-hosted supermemory-server executable is downloaded from official
 Supermemory GitHub releases during the engine image build. It is not source
 code from this repository. Its exact version and SHA-256 digest are pinned in
 deploy/supermemory/Dockerfile.engine.
+
+The Supermemory source tree is MIT licensed, but the downloaded engine release
+asset does not publish sufficiently explicit asset-specific redistribution
+terms. Ram0 does not assert a license for that binary. Images containing it are
+kept private pending written clarification from Supermemory.
