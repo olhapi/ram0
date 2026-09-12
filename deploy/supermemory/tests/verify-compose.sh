@@ -22,6 +22,7 @@ grep -Fq 'ram0_postgres' "$DEPLOY"
 
 bash "$ROOT/deploy/supermemory/tests/test-deploy-unraid.sh"
 bash "$ROOT/deploy/supermemory/tests/test-verify-stack.sh"
+bash "$ROOT/deploy/supermemory/tests/test-promote-readiness.sh"
 
 if grep -R -E 'docker\.sock|privileged:[[:space:]]*true|network_mode:[[:space:]]*host|compose down -v|docker compose down -v' \
   "$ROOT/deploy/supermemory" --exclude='verify-compose.sh'; then

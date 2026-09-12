@@ -211,6 +211,8 @@ promote() {
   MUTATION_STARTED=true
   docker stop ram0_dashboard ram0_api >/dev/null
   live_compose up -d --force-recreate engine gateway graph
+  wait_for_url "http://$RAM0_HOST_IP:18888/health"
+  wait_for_url "http://$RAM0_HOST_IP:13000/"
   "$SCRIPT_DIR/verify-stack.sh" \
     "http://$RAM0_HOST_IP:18888" "http://$RAM0_HOST_IP:13000" "$RAM0_RUNTIME_ENV_FILE" \
     "${RAM0_PUBLIC_API_URL:-}" "${RAM0_PUBLIC_GRAPH_URL:-}"
