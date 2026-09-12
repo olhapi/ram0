@@ -39,7 +39,7 @@ curl --fail --silent --show-error --max-time 15 \
   -H "Authorization: Bearer $SUPERMEMORY_API_KEY" \
   -H 'Content-Type: application/json' \
   -X POST "$API_URL/v4/memories/list" \
-  --data '{"containerTag":"personal"}' >"$TMP_RESPONSE"
+  --data '{"containerTags":["personal"],"page":1,"limit":20,"sort":"createdAt","order":"desc"}' >"$TMP_RESPONSE"
 
 curl --fail --silent --show-error --max-time 15 \
   -H "Authorization: Bearer $SUPERMEMORY_API_KEY" \
