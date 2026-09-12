@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 Ram0 contributors
+# SPDX-License-Identifier: MIT
+
+FROM debian:bookworm-slim AS download
+ARG TARGETARCH
+ARG SUPERMEMORY_SERVER_VERSION=0.0.6
+ARG SUPERMEMORY_SERVER_SHA256=bb1b7cee393818236873b8e2518a435e10d9195e27ea5608a3af48a733ef8ee8
+RUN test "$TARGETARCH" = "amd64"
+RUN apt-get update \
+	&& apt-get install --no-install-recommends -y ca-certificates curl \
+	&& rm -rf /var/lib/apt/lists/*
+RUN curl --fail --location --silent --show-error \
+	"https://github.com/supermemoryai/supermemory/releases/download/server-v${SUPERMEMORY_SERVER_VERSION}/supermemory-server-linux-x64" \
+	--output /supermemory-server \
+	&& echo "${SUPERMEMORY_SERVER_SHA256}  /supermemory-server" | sha256sum --check --strict \
+	&& chmod 0555 /supermemory-server
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update \
+	&& apt-get install --no-install-recommends -y ca-certificates \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& groupadd --gid 65532 supermemory \
+	&& useradd --uid 65532 --gid 65532 --home-dir /home/supermemory --create-home --shell /usr/sbin/nologin supermemory \
+	&& mkdir /data \
+	&& chown supermemory:supermemory /data
+COPY --from=download /supermemory-server /usr/local/bin/supermemory-server
+ENV PORT=6767
+ENV SUPERMEMORY_DATA_DIR=/data
+ENV SUPERMEMORY_DISABLE_TELEMETRY=1
+USER supermemory
+VOLUME ["/data"]
+EXPOSE 6767
+ENTRYPOINT ["/usr/local/bin/supermemory-server"]

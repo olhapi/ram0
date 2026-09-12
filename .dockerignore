@@ -1,0 +1,6 @@
+.git
+.turbo
+**/.next
+**/dist
+**/node_modules
+**/*.tsbuildinfo

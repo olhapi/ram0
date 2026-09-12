@@ -1,6 +1,9 @@
+// Modified for Ram0; see NOTICE and repository history.
 import { NextResponse } from "next/server"
 
-const SUPERMEMORY_API_BASE_URL = "https://api.supermemory.ai"
+function apiBaseUrl(): string {
+	return process.env.SUPERMEMORY_API_BASE_URL ?? "https://api.supermemory.ai"
+}
 
 export async function POST(request: Request) {
 	try {
@@ -23,7 +26,7 @@ export async function POST(request: Request) {
 
 		const graphUrl = new URL(
 			"/v3/documents/documents",
-			SUPERMEMORY_API_BASE_URL,
+			apiBaseUrl(),
 		)
 
 		const response = await fetch(graphUrl, {

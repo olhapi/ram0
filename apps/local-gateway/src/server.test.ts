@@ -26,6 +26,29 @@ const unusedBackend: MemoryBackend = {
 }
 
 describe("gateway HTTP routing", () => {
+	test("reports ready when the engine root is reachable", async () => {
+		let probedPath = ""
+		const engine = createServer((request, response) => {
+			probedPath = request.url ?? ""
+			response.statusCode = request.url === "/" ? 200 : 404
+			response.end()
+		})
+		const engineUrl = await listen(engine)
+		cleanup.push(() => closeServer(engine))
+		const gateway = createGatewayServer(
+			{ host: "127.0.0.1", port: 0, engineUrl, apiKey: "gateway-secret", personalContainer: "personal" },
+			unusedBackend,
+		)
+		const baseUrl = await listen(gateway)
+		cleanup.push(() => closeServer(gateway))
+
+		const response = await fetch(`${baseUrl}/health`)
+
+		expect(response.status).toBe(200)
+		expect(await response.json()).toEqual({ status: "ok", engine: "ok" })
+		expect(probedPath).toBe("/")
+	})
+
 	test("rejects MCP requests without the configured bearer token", async () => {
 		const gateway = createGatewayServer(
 			{ host: "127.0.0.1", port: 0, engineUrl: "http://127.0.0.1:1", apiKey: "gateway-secret", personalContainer: "personal" },

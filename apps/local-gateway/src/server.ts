@@ -73,7 +73,7 @@ export function createGatewayServer(config: GatewayConfig, backend: MemoryBacken
 				return
 			}
 			if (path === "/health") {
-				const engine = await fetch(`${config.engineUrl}/health`, {
+				const engine = await fetch(`${config.engineUrl}/`, {
 					headers: { Authorization: `Bearer ${config.apiKey}` },
 					signal: AbortSignal.timeout(3_000),
 				})

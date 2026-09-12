@@ -1,7 +1,8 @@
+// Modified for Ram0; see NOTICE and repository history.
 import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
-	/* config options here */
+	output: "standalone",
 	reactCompiler: true,
 }
 

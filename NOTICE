@@ -1,0 +1,13 @@
+Ram0 Supermemory distribution
+Copyright 2026 Ram0 contributors
+
+This repository is based on the Supermemory project and retains its MIT
+license and upstream history. Ram0-owned changes provide a local gateway,
+Model Context Protocol service, migration tooling, agent integrations, and
+self-hosted deployment assets. Modified upstream source files identify the
+fork in a short header and are traceable through repository history.
+
+The self-hosted supermemory-server executable is downloaded from official
+Supermemory GitHub releases during the engine image build. It is not source
+code from this repository. Its exact version and SHA-256 digest are pinned in
+deploy/supermemory/Dockerfile.engine.
