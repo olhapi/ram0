@@ -81,6 +81,10 @@ export function createGatewayServer(config: GatewayConfig, backend: MemoryBacken
 				sendJson(response, ok ? 200 : 503, { status: ok ? "ok" : "degraded", engine: ok ? "ok" : "unavailable" })
 				return
 			}
+			if (!authenticateBearer(request.headers.authorization, config.apiKey)) {
+				sendJson(response, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" })
+				return
+			}
 			await proxyRequest(request, response, config.engineUrl)
 		} catch {
 			if (!response.headersSent) sendJson(response, 502, { error: "upstream unavailable" })

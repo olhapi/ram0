@@ -67,6 +67,29 @@ describe("gateway HTTP routing", () => {
 		expect(response.headers.get("www-authenticate")).toBe("Bearer")
 	})
 
+	test("rejects proxied engine routes without the configured bearer token", async () => {
+		let upstreamRequests = 0
+		const engine = createServer((_request, response) => {
+			upstreamRequests += 1
+			response.end("sensitive engine response")
+		})
+		const engineUrl = await listen(engine)
+		cleanup.push(() => closeServer(engine))
+		const gateway = createGatewayServer(
+			{ host: "127.0.0.1", port: 0, engineUrl, apiKey: "gateway-secret", personalContainer: "personal" },
+			unusedBackend,
+		)
+		const baseUrl = await listen(gateway)
+		cleanup.push(() => closeServer(gateway))
+
+		for (const path of ["/", "/v4/memories/list"]) {
+			const response = await fetch(`${baseUrl}${path}`)
+			expect(response.status).toBe(401)
+			expect(response.headers.get("www-authenticate")).toBe("Bearer")
+		}
+		expect(upstreamRequests).toBe(0)
+	})
+
 	test("streams REST requests and responses to the local engine", async () => {
 		let captured = ""
 		const engine = createServer(async (request, response) => {
