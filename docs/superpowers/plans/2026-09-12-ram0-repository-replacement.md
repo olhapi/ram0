@@ -508,9 +508,9 @@ The full old history remains in the external mirror and bundle. Retain
 - [ ] **Step 4: Confirm package privacy and live service health without secrets**
 
 ```bash
-gh api /user/packages/container/ram0-supermemory-engine --jq '.visibility'
-gh api /user/packages/container/ram0-supermemory-gateway --jq '.visibility'
-gh api /user/packages/container/ram0-supermemory-graph --jq '.visibility'
+gh api /user/packages/container/ram0-engine --jq '.visibility'
+gh api /user/packages/container/ram0-gateway --jq '.visibility'
+gh api /user/packages/container/ram0-graph --jq '.visibility'
 curl --fail --silent --show-error https://brain-api.olhapi.com/health >/dev/null
 ```
 
