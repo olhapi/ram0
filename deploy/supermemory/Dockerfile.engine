@@ -16,6 +16,8 @@ RUN curl --fail --location --silent --show-error \
 	&& chmod 0555 /supermemory-server
 
 FROM debian:bookworm-slim AS runtime
+WORKDIR /
+COPY LICENSE NOTICE /usr/share/licenses/ram0/
 RUN apt-get update \
 	&& apt-get install --no-install-recommends -y ca-certificates \
 	&& rm -rf /var/lib/apt/lists/* \

@@ -14,6 +14,7 @@ RUN node ../../node_modules/next/dist/bin/next build
 
 FROM node:24.8.0-bookworm-slim AS runtime
 WORKDIR /app
+COPY LICENSE NOTICE /usr/share/licenses/ram0/
 ENV HOSTNAME=0.0.0.0
 ENV NODE_ENV=production
 ENV PORT=3000
