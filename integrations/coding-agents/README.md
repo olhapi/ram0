@@ -44,6 +44,28 @@ plugin config, or command-line argument.
 Run the installer again with the same URL to make no changes. Use `--force` to
 refresh the plugin installations or repair their registrations.
 
+## Existing Ram0 workstations
+
+To migrate an existing workstation to the public Ram0 repository, use a new
+checkout and install the gateway integration there:
+
+```bash
+git clone https://github.com/olhapi/ram0.git ~/projects/ram0-supermemory
+cd ~/projects/ram0-supermemory
+node integrations/coding-agents/install.mjs \
+  --base-url https://brain-api.olhapi.com \
+  --force
+source ~/.config/ram0-supermemory/activate.sh
+```
+
+Securely transfer or recreate the mode-`0600`
+`~/.config/ram0-supermemory/credentials.env` file; never place its key in a
+command-line argument. Keep the old checkout and its configuration untouched
+until the new installation's status check succeeds. Only then remove the old
+`ram0@ram0-plugins` marketplace entry. Restart Claude Code and Codex from a
+shell where `activate.sh` has been sourced so both clients inherit the new
+credentials and gateway configuration.
+
 ## Verify
 
 Restart both clients after installation.
