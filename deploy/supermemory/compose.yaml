@@ -18,6 +18,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    logging:
+      driver: "none"
 
   gateway:
     image: ${RAM0_GATEWAY_IMAGE:?RAM0_GATEWAY_IMAGE is required}
