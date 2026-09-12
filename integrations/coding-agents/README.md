@@ -46,14 +46,25 @@ refresh the plugin installations or repair their registrations.
 To migrate an existing workstation to the public Ram0 repository, retain the
 old checkout. Before using `--force`, make a separate mode-`0700` backup of any
 existing integration configuration. This prevents the installer from replacing
-the only copy of its generated configuration:
+the only copy of its generated configuration. The backup is fail closed: a
+timestamp collision or any backup error stops the sequence. Do not continue
+unless the backup completes:
 
 ```bash
 config_dir="$HOME/.config/ram0-supermemory"
-backup_dir="$HOME/.config/ram0-supermemory-backup-$(date +%Y%m%d%H%M%S)"
+backup_root="$HOME/.config/ram0-supermemory-backup-$(date +%Y%m%d%H%M%S)"
 if [ -d "$config_dir" ]; then
-  (umask 077; mkdir "$backup_dir")
-  cp -pR "$config_dir"/. "$backup_dir"/
+  if ! (
+    umask 077
+    mkdir "$backup_root" &&
+      chmod 700 "$backup_root" &&
+      mkdir "$backup_root/config" &&
+      cp -pR "$config_dir"/. "$backup_root/config"/ &&
+      chmod 700 "$backup_root" "$backup_root/config"
+  ); then
+    printf '%s\n' 'Ram0 configuration backup failed; do not continue.' >&2
+    exit 1
+  fi
 fi
 ```
 

@@ -542,14 +542,25 @@ behind upstream, and all deployment/compliance checks passing.
 - [ ] **Step 1: Add an “Existing Ram0 workstations” section**
 
 Document this operational order. Before `--force`, retain the old checkout and
-back up any existing configuration into a separate mode-`0700` directory:
+back up any existing configuration into a separate mode-`0700` directory. The
+backup must fail closed: a timestamp collision or any backup error stops the
+sequence, and users must not continue unless it completes:
 
 ```bash
 config_dir="$HOME/.config/ram0-supermemory"
-backup_dir="$HOME/.config/ram0-supermemory-backup-$(date +%Y%m%d%H%M%S)"
+backup_root="$HOME/.config/ram0-supermemory-backup-$(date +%Y%m%d%H%M%S)"
 if [ -d "$config_dir" ]; then
-  (umask 077; mkdir "$backup_dir")
-  cp -pR "$config_dir"/. "$backup_dir"/
+  if ! (
+    umask 077
+    mkdir "$backup_root" &&
+      chmod 700 "$backup_root" &&
+      mkdir "$backup_root/config" &&
+      cp -pR "$config_dir"/. "$backup_root/config"/ &&
+      chmod 700 "$backup_root" "$backup_root/config"
+  ); then
+    printf '%s\n' 'Ram0 configuration backup failed; do not continue.' >&2
+    exit 1
+  fi
 fi
 ```
 
