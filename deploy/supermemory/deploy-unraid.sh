@@ -90,7 +90,7 @@ validate_plan() {
 
 preflight() {
   [[ $(id -u) -eq 0 ]] || fail 'run this deployment as root on Unraid'
-  for command in docker curl jq pg_restore; do command -v "$command" >/dev/null || fail "$command is required"; done
+  for command in docker curl jq; do command -v "$command" >/dev/null || fail "$command is required"; done
   docker compose version >/dev/null
   docker info >/dev/null
   validate_sha "$RAM0_REVISION" || fail 'RAM0_REVISION must be a full lowercase Git SHA'
@@ -106,7 +106,16 @@ preflight() {
   validate_plan "$RAM0_MIGRATION_DIR/import-plan.json"
   [[ -n $(docker ps --filter name='^/ram0_postgres$' --format '{{.ID}}') ]] || fail 'ram0_postgres is not running'
   mkdir -p "$RAM0_SUPERMEMORY_DATA_DIR" "$RAM0_MIGRATION_DIR" "$(dirname "$RAM0_RUNTIME_ENV_FILE")"
-  chmod 700 "$RAM0_SUPERMEMORY_DATA_DIR" "$RAM0_MIGRATION_DIR" "$(dirname "$RAM0_RUNTIME_ENV_FILE")"
+  chown 65532:65532 "$RAM0_SUPERMEMORY_DATA_DIR"
+  chmod 700 "$RAM0_SUPERMEMORY_DATA_DIR"
+  chown 1000:1000 "$RAM0_MIGRATION_DIR" "$RAM0_MIGRATION_DIR/import-plan.json"
+  chmod 700 "$RAM0_MIGRATION_DIR"
+  chmod 600 "$RAM0_MIGRATION_DIR/import-plan.json"
+  if [[ -f $RAM0_MIGRATION_DIR/import-journal.jsonl ]]; then
+    chown 1000:1000 "$RAM0_MIGRATION_DIR/import-journal.jsonl"
+    chmod 600 "$RAM0_MIGRATION_DIR/import-journal.jsonl"
+  fi
+  chmod 700 "$(dirname "$RAM0_RUNTIME_ENV_FILE")"
   printf 'SUPERMEMORY_API_KEY=initializing\n' >"$RAM0_RUNTIME_ENV_FILE"
   chmod 600 "$RAM0_RUNTIME_ENV_FILE"
   candidate_compose config --quiet
@@ -126,7 +135,7 @@ backup_legacy() {
   postgres_db=${postgres_db:-mem0_app}
   docker exec ram0_postgres pg_dump -U "$postgres_user" -d "$postgres_db" --format=custom >"$BACKUP_DIR/ram0.dump"
   [[ -s $BACKUP_DIR/ram0.dump ]] || fail 'PostgreSQL backup is empty'
-  pg_restore --list "$BACKUP_DIR/ram0.dump" >/dev/null
+  docker exec -i ram0_postgres pg_restore --list <"$BACKUP_DIR/ram0.dump" >/dev/null
   cp "$RAM0_MIGRATION_DIR/import-plan.json" "$BACKUP_DIR/import-plan.json"
   cp "$RAM0_LEGACY_COMPOSE_DIR/docker-compose.yaml" "$RAM0_LEGACY_COMPOSE_DIR/docker-compose.unraid.yaml" "$BACKUP_DIR/"
   cp "$ENV_FILE" "$RAM0_LEGACY_STATE_FILE" "$BACKUP_DIR/"
@@ -171,7 +180,18 @@ import_memories() {
   expected=$(jq -r '.records | length' "$RAM0_MIGRATION_DIR/import-plan.json")
   completed=$(jq -s '[.[].keys[]] | unique | length' "$RAM0_MIGRATION_DIR/import-journal.jsonl")
   [[ $completed -eq $expected ]] || fail "import journal covers $completed of $expected records"
-  log "verified import journal for $completed records"
+  local count
+  for ((count = 1; count <= 60; count++)); do
+    if candidate_compose run --rm --no-deps gateway \
+      bun /app/migrate.js verify \
+      --plan /migration/import-plan.json \
+      --base-url http://engine:6767 >/dev/null 2>&1; then
+      log "verified import journal and target counts for $completed records"
+      return
+    fi
+    sleep 2
+  done
+  fail 'imported memory counts did not settle before the verification deadline'
 }
 
 legacy_compose() {

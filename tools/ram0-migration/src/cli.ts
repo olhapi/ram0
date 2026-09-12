@@ -8,6 +8,7 @@ import { FileImportJournal } from "./journal"
 import { importPlan, SupermemoryImportBackend } from "./import"
 import type { ContainerMapping, ImportPlan } from "./model"
 import { buildImportPlan } from "./plan"
+import { SupermemoryCountBackend, verifyImportedPlan } from "./verify"
 
 function option(args: string[], name: string): string {
 	const index = args.indexOf(name)
@@ -79,7 +80,15 @@ export async function run(args: string[], env: Record<string, string | undefined
 			containers: [...new Set(currentPlan.records.map((record) => record.containerTag))].sort(),
 		}
 	}
-	throw new Error("usage: migrate <plan|import|stats> [options]")
+	if (command === "verify") {
+		const currentPlan = plan(await readJson(option(args, "--plan")))
+		const apiKey = env.SUPERMEMORY_API_KEY
+		if (!apiKey) throw new Error("SUPERMEMORY_API_KEY is required")
+		const result = await verifyImportedPlan(currentPlan, new SupermemoryCountBackend(option(args, "--base-url"), apiKey))
+		if (!result.complete) throw new Error(`import verification is incomplete: ${JSON.stringify(result.containers)}`)
+		return result
+	}
+	throw new Error("usage: migrate <plan|import|stats|verify> [options]")
 }
 
 async function main(): Promise<void> {
