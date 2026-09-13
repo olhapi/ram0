@@ -11,7 +11,9 @@ self-hosted Ram0 Supermemory gateway:
 - the gateway MCP lets either agent search, save, list, and inspect memory on demand;
 - Claude Code and Codex derive the same `repo_<name>__<hash>` container from a
   normalized Git remote, so clones and linked worktrees share project memory;
-- the bearer key stays in the process environment and is never written to Git.
+- the bearer key is stored only in the upstream plugins' private credential
+  files, never in Git or client settings, so clients launched from a desktop
+  app or service work without a shell profile.
 
 ## Install after deployment
 
@@ -23,26 +25,34 @@ node integrations/coding-agents/install.mjs \
   --base-url https://brain-api.example.com
 ```
 
-The installer pins `codex-supermemory` 1.0.17, adds the official
-`supermemoryai/claude-supermemory` marketplace plugin, and points Codex's
-`supermemory` MCP registration directly at the local gateway. It writes only a
+The installer pins `codex-supermemory` 1.0.17 and adds the official
+`supermemoryai/claude-supermemory` marketplace plugin. It keeps Codex's upstream
+`supermemory` MCP proxy and sets only its `SUPERMEMORY_MCP_URL`. It writes a
 non-secret environment helper, recall adapter, scope helper, and an installation
 marker under `~/.config/ram0-supermemory/`. It merges additive hook registrations
 into `~/.codex/hooks.json` and `~/.claude/settings.json`, preserving existing
 hooks and settings. It does not redirect repository writes into `personal`.
 
 Put the gateway key in a separate credentials file using your preferred
-secret-backed local editor, then source that file before the generated helper.
-The credentials file must export `SUPERMEMORY_API_KEY`; the installer neither
-creates nor sources it.
+secret-backed local editor. The credentials file must export
+`SUPERMEMORY_API_KEY`; the installer neither creates nor sources it. Source it
+before running the installer.
 
-The helper maps the one key into the environment names expected by the upstream
-Claude Code and Codex hooks. It also sends their automatic REST traffic to the
-gateway and their MCP traffic to `<base-url>/mcp`. Do not put the key in a repo,
-plugin config, or command-line argument.
+Desktop apps and services do not read shell profiles, so the installer does not
+rely on them. It adds the non-secret gateway REST and MCP URLs to the `env`
+block of `~/.claude/settings.json`. Codex reads the REST URL from its credential
+file. The installer then stores the key from `SUPERMEMORY_API_KEY` in the files
+the upstream login would write: `~/.supermemory-claude/credentials.json` and
+`~/.codex/supermemory/credentials.json` (mode `0600`). With a stored key, the
+plugins never open the hosted Supermemory login. Do not put the key in a repo,
+client settings, or command-line argument.
 
-Run the installer again with the same URL to make no changes. Use `--force` to
-refresh the plugin installations or repair their registrations.
+The generated helper still maps the key into the upstream environment names for
+shells that source it; environment variables take precedence over the files.
+
+Run the installer again with the same URL to make no changes; a rotated key is
+the only thing it refreshes. Use `--force` to refresh the plugin installations or
+repair their registrations.
 
 ## Existing Ram0 workstations
 
@@ -87,20 +97,20 @@ touch "$credentials_file"
 chmod 600 "$credentials_file"
 ```
 
-After saving the credentials file, use a new checkout, run the installer, and
-source the user-managed credentials file before the generated helper:
+After saving the credentials file, use a new checkout, source the user-managed
+credentials file, and run the installer:
 
 ```bash
 git clone https://github.com/olhapi/ram0.git "$HOME/projects/ram0-supermemory"
 cd "$HOME/projects/ram0-supermemory"
+. "$credentials_file"
 node integrations/coding-agents/install.mjs \
   --base-url https://brain-api.olhapi.com \
   --force
-. "$credentials_file"
-. "$config_dir/env.sh"
 ```
 
-From that same shell, start or restart Claude Code and Codex. In each client,
+Restart Claude Code and Codex, including any desktop app or service that
+launches them. In each client,
 run `/mcp` and confirm `supermemory` is connected; in Claude Code, also run
 `/supermemory:status`. Only after those checks pass may you remove the legacy
 `ram0@ram0-plugins` marketplace entry.

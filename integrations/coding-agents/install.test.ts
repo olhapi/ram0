@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import {
+	existsSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -71,7 +72,13 @@ describe("coding-agent installer", () => {
 				home,
 				baseUrl,
 				runner: async () => ({ status: 0, output: "" }),
+				apiKey: "synthetic-test-key",
 			})
+			const withoutShellEnv = Object.fromEntries(
+				Object.entries(process.env).filter(
+					([name]) => !name.startsWith("SUPERMEMORY_"),
+				),
+			)
 			for (const [client, filename] of [
 				[".codex", "hooks.json"],
 				[".claude", "settings.json"],
@@ -99,7 +106,10 @@ describe("coding-agent installer", () => {
 						],
 						{ cwd },
 					)
-					for (const event of ["SessionStart", "UserPromptSubmit"]) {
+					for (const [event, shellEnv] of [
+						["SessionStart", true],
+						["UserPromptSubmit", false],
+					] as const) {
 						const command = settings.hooks[event]
 							?.flatMap((group) => group.hooks)
 							.find((hook) => hook.command.includes("recall.mjs"))?.command
@@ -108,11 +118,14 @@ describe("coding-agent installer", () => {
 						const output = await new Promise<string>((resolve, reject) => {
 							const child = spawn("bash", ["-c", command], {
 								cwd,
-								env: {
-									...process.env,
-									SUPERMEMORY_API_URL: baseUrl,
-									SUPERMEMORY_API_KEY: "synthetic-test-key",
-								},
+								// GUI launchers skip shell profiles; the hook must fall back to installed files.
+								env: shellEnv
+									? {
+											...process.env,
+											SUPERMEMORY_API_URL: baseUrl,
+											SUPERMEMORY_API_KEY: "synthetic-test-key",
+										}
+									: { ...withoutShellEnv, HOME: home },
 							})
 							let stdout = ""
 							child.stdout.on("data", (chunk) => {
@@ -159,7 +172,7 @@ describe("coding-agent installer", () => {
 			await new Promise<void>((resolve) => server.close(() => resolve()))
 		}
 	})
-	test("installs self-hosted hooks and MCP once without persisting the key", async () => {
+	test("installs self-hosted hooks and MCP once without writing the key into settings", async () => {
 		const home = mkdtempSync(join(tmpdir(), "ram0-agent-install-"))
 		cleanup.push(home)
 		const calls: string[][] = []
@@ -172,6 +185,7 @@ describe("coding-agent installer", () => {
 			home,
 			baseUrl: "https://brain.example.test/",
 			runner,
+			apiKey: "sm_synthetic",
 		})
 		const firstCalls = calls.map((call) => [...call])
 		const environment = readFileSync(first.environmentFile, "utf8")
@@ -180,6 +194,7 @@ describe("coding-agent installer", () => {
 			home,
 			baseUrl: "https://brain.example.test/",
 			runner,
+			apiKey: "sm_synthetic",
 		})
 
 		expect(second.changed).toBe(false)
@@ -196,11 +211,72 @@ describe("coding-agent installer", () => {
 		expect(environment).not.toContain("replace-me")
 		expect(marker).not.toContain("SUPERMEMORY_API_KEY")
 		expect(statSync(first.environmentFile).mode & 0o777).toBe(0o600)
-		expect(
-			firstCalls.some((call) =>
-				call.join(" ").includes("--bearer-token-env-var SUPERMEMORY_API_KEY"),
-			),
-		).toBe(true)
+		expect(firstCalls).toContainEqual([
+			"codex",
+			"mcp",
+			"add",
+			"supermemory",
+			"--env",
+			"SUPERMEMORY_MCP_URL=https://brain.example.test/mcp",
+			"--",
+			"node",
+			join(home, ".codex", "supermemory", "mcp-proxy.js"),
+		])
+
+		const claudeSettings = readFileSync(
+			join(home, ".claude", "settings.json"),
+			"utf8",
+		)
+		expect(JSON.parse(claudeSettings).env).toEqual({
+			SUPERMEMORY_API_URL: "https://brain.example.test",
+			SUPERMEMORY_MCP_URL: "https://brain.example.test/mcp",
+		})
+		expect(claudeSettings).not.toContain("sm_synthetic")
+		const claudeCredentials = join(
+			home,
+			".supermemory-claude",
+			"credentials.json",
+		)
+		const codexCredentials = join(
+			home,
+			".codex",
+			"supermemory",
+			"credentials.json",
+		)
+		expect(JSON.parse(readFileSync(claudeCredentials, "utf8")).apiKey).toBe(
+			"sm_synthetic",
+		)
+		expect(JSON.parse(readFileSync(codexCredentials, "utf8"))).toMatchObject({
+			apiKey: "sm_synthetic",
+			apiBaseUrl: "https://brain.example.test",
+		})
+		for (const path of [claudeCredentials, codexCredentials])
+			expect(statSync(path).mode & 0o777).toBe(0o600)
+
+		const rotated = await installAgentIntegrations({
+			home,
+			baseUrl: "https://brain.example.test/",
+			runner,
+			apiKey: "sm_rotated",
+		})
+		expect(rotated.changed).toBe(true)
+		expect(calls).toEqual(firstCalls)
+		expect(JSON.parse(readFileSync(codexCredentials, "utf8")).apiKey).toBe(
+			"sm_rotated",
+		)
+	})
+
+	test("leaves client credentials alone without a key", async () => {
+		const home = mkdtempSync(join(tmpdir(), "ram0-agent-nokey-"))
+		cleanup.push(home)
+		await installAgentIntegrations({
+			home,
+			baseUrl: "https://brain.example.test",
+			runner: async () => ({ status: 0, output: "" }),
+			apiKey: "",
+		})
+		expect(existsSync(join(home, ".supermemory-claude"))).toBe(false)
+		expect(existsSync(join(home, ".codex", "supermemory"))).toBe(false)
 	})
 
 	test("rejects URLs that could persist credentials", async () => {
@@ -208,6 +284,7 @@ describe("coding-agent installer", () => {
 			installAgentIntegrations({
 				home: "/tmp/unused",
 				baseUrl: "https://user:secret@example.test",
+				apiKey: "",
 				runner: async () => ({ status: 0, output: "" }),
 			}),
 		).rejects.toThrow("credentials")

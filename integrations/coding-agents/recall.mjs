@@ -2,12 +2,38 @@
 // SPDX-FileCopyrightText: 2026 Ram0 contributors
 // SPDX-License-Identifier: MIT
 
+import { readFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
+
 import { resolveRepositoryContainer } from "./project-scope.mjs"
+
+function readJson(path) {
+	try {
+		return JSON.parse(readFileSync(path, "utf8"))
+	} catch {
+		return null
+	}
+}
+
+// GUI and service launchers skip shell profiles, so fall back to the files the installer wrote.
+function resolveGateway() {
+	return {
+		key:
+			process.env.SUPERMEMORY_API_KEY ||
+			readJson(join(homedir(), ".supermemory-claude", "credentials.json"))
+				?.apiKey ||
+			readJson(join(homedir(), ".codex", "supermemory", "credentials.json"))
+				?.apiKey,
+		base:
+			process.env.SUPERMEMORY_API_URL ||
+			readJson(new URL("installed.json", import.meta.url))?.apiUrl,
+	}
+}
 
 // Additive read-only adapter. Upstream capture retains repository write scope.
 async function main() {
-	const key = process.env.SUPERMEMORY_API_KEY
-	const base = process.env.SUPERMEMORY_API_URL
+	const { key, base } = resolveGateway()
 	if (!key || !base) return
 	const url = new URL(base)
 	if (

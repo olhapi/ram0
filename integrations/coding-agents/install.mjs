@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url"
 
 const CODEX_PLUGIN_VERSION = "1.0.17"
 const CLAUDE_PLUGIN_SOURCE = "supermemoryai/claude-supermemory"
-const MARKER_VERSION = 2
+const MARKER_VERSION = 3
 
 function normalizedBaseUrl(value) {
 	let url
@@ -60,7 +60,7 @@ async function defaultRunner(command, args, options = {}) {
 	})
 }
 
-function commandPlan(mcpUrl) {
+function commandPlan(home, mcpUrl) {
 	return [
 		{
 			command: "npx",
@@ -77,10 +77,11 @@ function commandPlan(mcpUrl) {
 				"mcp",
 				"add",
 				"supermemory",
-				"--url",
-				mcpUrl,
-				"--bearer-token-env-var",
-				"SUPERMEMORY_API_KEY",
+				"--env",
+				`SUPERMEMORY_MCP_URL=${mcpUrl}`,
+				"--",
+				"node",
+				join(home, ".codex", "supermemory", "mcp-proxy.js"),
 			],
 		},
 		{
@@ -110,7 +111,33 @@ function commandPlan(mcpUrl) {
 	]
 }
 
-async function readMarker(path) {
+// Upstream login writes these files; seeding them keeps the key out of settings.
+async function syncCredentials(home, apiUrl, apiKey) {
+	if (!apiKey) return false
+	let changed = false
+	for (const [path, extra] of [
+		[join(home, ".supermemory-claude", "credentials.json"), {}],
+		[
+			join(home, ".codex", "supermemory", "credentials.json"),
+			{ apiBaseUrl: apiUrl },
+		],
+	]) {
+		const current = await readJson(path)
+		if (
+			current?.apiKey === apiKey &&
+			Object.entries(extra).every(([key, value]) => current[key] === value)
+		)
+			continue
+		await writePrivate(
+			path,
+			`${JSON.stringify({ apiKey, ...extra, savedAt: new Date().toISOString() }, null, 2)}\n`,
+		)
+		changed = true
+	}
+	return changed
+}
+
+async function readJson(path) {
 	try {
 		return JSON.parse(await readFile(path, "utf8"))
 	} catch {
@@ -118,7 +145,7 @@ async function readMarker(path) {
 	}
 }
 
-async function installRecallHooks(home, configDirectory) {
+async function installRecallHooks(home, configDirectory, apiUrl, mcpUrl) {
 	for (const filename of ["recall.mjs", "project-scope.mjs"]) {
 		await writePrivate(
 			join(configDirectory, filename),
@@ -151,6 +178,13 @@ async function installRecallHooks(home, configDirectory) {
 		}
 		if (events === settings) settings = { hooks: events }
 		else settings.hooks = events
+		// GUI and service launchers skip shell profiles; Claude Code applies this to plugin hooks and MCP.
+		if (directory === ".claude")
+			settings.env = {
+				...settings.env,
+				SUPERMEMORY_API_URL: apiUrl,
+				SUPERMEMORY_MCP_URL: mcpUrl,
+			}
 		await writePrivate(path, `${JSON.stringify(settings, null, 2)}\n`)
 	}
 }
@@ -160,6 +194,7 @@ export async function installAgentIntegrations({
 	baseUrl,
 	runner = defaultRunner,
 	force = false,
+	apiKey = process.env.SUPERMEMORY_API_KEY,
 } = {}) {
 	if (!baseUrl) throw new Error("--base-url is required")
 	const apiUrl = normalizedBaseUrl(baseUrl)
@@ -174,9 +209,10 @@ export async function installAgentIntegrations({
 		codexPluginVersion: CODEX_PLUGIN_VERSION,
 		claudePluginSource: CLAUDE_PLUGIN_SOURCE,
 	}
-	const previous = await readMarker(markerFile)
+	const previous = await readJson(markerFile)
 	if (!force && JSON.stringify(previous) === JSON.stringify(marker)) {
-		return { changed: false, environmentFile, markerFile, commands: [] }
+		const changed = await syncCredentials(home, apiUrl, apiKey)
+		return { changed, environmentFile, markerFile, commands: [] }
 	}
 
 	const environment =
@@ -189,7 +225,7 @@ export async function installAgentIntegrations({
 		"fi\n"
 	await writePrivate(environmentFile, environment)
 
-	const commands = commandPlan(mcpUrl)
+	const commands = commandPlan(home, mcpUrl)
 	for (const step of commands) {
 		const result = await runner(step.command, step.args, { home })
 		if (result.status !== 0 && !step.allowedFailure?.test(result.output)) {
@@ -198,8 +234,10 @@ export async function installAgentIntegrations({
 			)
 		}
 	}
-	await installRecallHooks(home, configDirectory)
+	await installRecallHooks(home, configDirectory, apiUrl, mcpUrl)
 	await writePrivate(markerFile, `${JSON.stringify(marker, null, 2)}\n`)
+	// Only after the gateway URLs are configured, so the key never reaches the upstream default.
+	await syncCredentials(home, apiUrl, apiKey)
 	return {
 		changed: true,
 		environmentFile,
@@ -227,9 +265,13 @@ if (
 		.then((result) => {
 			process.stdout.write(
 				result.changed
-					? `Installed Claude Code and Codex Supermemory integration. Source ${result.environmentFile} before launching either client.\n`
+					? "Installed Claude Code and Codex Supermemory integration. Restart both clients.\n"
 					: "Claude Code and Codex Supermemory integration is already current.\n",
 			)
+			if (!process.env.SUPERMEMORY_API_KEY)
+				process.stderr.write(
+					"SUPERMEMORY_API_KEY is not set, so client credentials were not stored. Source your credentials file and run the installer again.\n",
+				)
 		})
 		.catch((error) => {
 			process.stderr.write(
