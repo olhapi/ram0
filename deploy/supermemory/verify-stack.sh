@@ -59,6 +59,29 @@ curl --fail --silent --show-error --max-time 15 \
   >"$TMP_RESPONSE"
 grep -Fq 'personal' "$TMP_RESPONSE" || fail 'MCP tool invocation failed'
 
+# Accepted writes are not enough: a broken workflow engine leaves every document queued.
+curl --fail --silent --show-error --max-time 15 \
+  -H "Authorization: Bearer $SUPERMEMORY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -X POST "$API_URL/v3/documents" \
+  --data "{\"content\":\"Deployment ingestion check at $(date -u +%Y-%m-%dT%H:%M:%SZ): the operator prefers verified releases.\",\"containerTag\":\"ram0_deploy_check\",\"customId\":\"ram0-deploy-check\"}" \
+  >"$TMP_RESPONSE"
+CHECK_ID=$(grep -o '"id":"[^"]*"' "$TMP_RESPONSE" | head -1 | cut -d'"' -f4)
+[[ -n $CHECK_ID ]] || fail 'ingestion check document was not accepted'
+CHECK_STATUS=
+for ((attempt = 0; attempt < ${VERIFY_INGEST_ATTEMPTS:-60}; attempt++)); do
+  curl --fail --silent --show-error --max-time 15 \
+    -H "Authorization: Bearer $SUPERMEMORY_API_KEY" \
+    "$API_URL/v3/documents/$CHECK_ID" >"$TMP_RESPONSE"
+  CHECK_STATUS=$(grep -o '"status":"[^"]*"' "$TMP_RESPONSE" | head -1 | cut -d'"' -f4)
+  [[ $CHECK_STATUS == done || $CHECK_STATUS == failed ]] && break
+  sleep "${VERIFY_INGEST_INTERVAL:-5}"
+done
+curl --silent --output /dev/null --max-time 15 \
+  -H "Authorization: Bearer $SUPERMEMORY_API_KEY" \
+  -X DELETE "$API_URL/v3/documents/$CHECK_ID" || true
+[[ $CHECK_STATUS == done ]] || fail "ingestion check document ended as '${CHECK_STATUS:-unknown}' instead of done"
+
 curl --fail --silent --show-error --max-time 15 "$GRAPH_URL/" >/dev/null
 
 if [[ -n $PUBLIC_API_URL ]]; then
@@ -68,4 +91,4 @@ if [[ -n $PUBLIC_GRAPH_URL ]]; then
   curl --fail --silent --show-error --max-time 20 "${PUBLIC_GRAPH_URL%/}/" >/dev/null
 fi
 
-printf '[verify-supermemory] REST, MCP, graph, and configured public checks passed\n'
+printf '[verify-supermemory] REST, MCP, ingestion, graph, and configured public checks passed\n'

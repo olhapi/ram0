@@ -143,3 +143,41 @@ Preserve the previous export, plan, journal, and candidate data for reconciliati
 If new destination writes were accepted before rollback, preserve/export those
 too and reconcile both sides before another promotion—never discard them or
 blindly reuse a candidate with superseded memories.
+
+## Upgrade the engine
+
+Engine 0.0.6 cannot load its workflow runtime (`@rivetkit/rivetkit-wasm`), so it
+accepts documents but never processes them; they fail after four hours in
+`queued`. 0.0.7 and later process documents and open 0.0.6 stores in place.
+Since 0.0.7 the self-hosted engine is licensed for up to 10,000 documents.
+
+On Unraid, as root, from a checkout at the new revision. First set
+`RAM0_ENGINE_IMAGE` and `RAM0_REVISION` in `supermemory.env` to the new immutable
+digest and revision. Then stop the engine, back up its store, and recreate only
+the engine:
+
+```bash
+env_file=/mnt/user/appdata/mem0/supermemory.env
+set -a; . "$env_file"; set +a
+compose() { docker compose --env-file "$env_file" -f deploy/supermemory/compose.yaml "$@"; }
+compose stop engine
+cp -a "$RAM0_SUPERMEMORY_DATA_DIR" "$RAM0_SUPERMEMORY_DATA_DIR.backup-$(date +%Y%m%d%H%M%S)"
+compose up -d --no-deps --force-recreate engine
+bash deploy/supermemory/verify-stack.sh \
+  "http://$RAM0_HOST_IP:18888" "http://$RAM0_HOST_IP:13000" "$RAM0_RUNTIME_ENV_FILE" \
+  "${RAM0_PUBLIC_API_URL:-}" "${RAM0_PUBLIC_GRAPH_URL:-}"
+```
+
+`verify-stack.sh` adds a document to `ram0_deploy_check` and passes only when
+extraction finishes as `done`; a missing or invalid `OPENAI_API_KEY` fails it.
+To roll back, stop the engine, restore the backup directory, and restore the
+previous digest: an upgraded store may not open in the older engine.
+
+The engine retries only some failed documents. After a successful upgrade,
+re-queue documents that failed under the broken engine from a workstation with
+the gateway key loaded. Only documents with a `customId` are re-posted, in place:
+
+```bash
+node deploy/supermemory/requeue-failed-documents.mjs --base-url https://brain-api.olhapi.com
+node deploy/supermemory/requeue-failed-documents.mjs --base-url https://brain-api.olhapi.com --apply
+```

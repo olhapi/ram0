@@ -3,8 +3,8 @@
 
 FROM debian:bookworm-slim AS download
 ARG TARGETARCH
-ARG SUPERMEMORY_SERVER_VERSION=0.0.6
-ARG SUPERMEMORY_SERVER_SHA256=bb1b7cee393818236873b8e2518a435e10d9195e27ea5608a3af48a733ef8ee8
+ARG SUPERMEMORY_SERVER_VERSION=0.0.8
+ARG SUPERMEMORY_SERVER_SHA256=87f32433d0179be80bb9d8a1bafbac65af4128324342a27ecb8bd1a77b5506f3
 RUN test "$TARGETARCH" = "amd64"
 RUN apt-get update \
 	&& apt-get install --no-install-recommends -y ca-certificates curl \
