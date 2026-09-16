@@ -62,6 +62,12 @@ describe("coding-agent installer", () => {
 			response.end(
 				JSON.stringify({
 					profile: { static: [`context:${body.containerTag}`], dynamic: [] },
+					searchResults: {
+						results: [
+							{ memory: `match:${body.containerTag}`, similarity: 0.9 },
+							{ memory: `noise:${body.containerTag}`, similarity: 0.6 },
+						],
+					},
 				}),
 			)
 		})
@@ -159,12 +165,15 @@ describe("coding-agent installer", () => {
 							),
 						).toBe(true)
 						expect(JSON.stringify(current)).not.toContain("hidden-value")
-						expect(
-							JSON.parse(output).hookSpecificOutput.additionalContext,
-						).toContain("context:personal")
-						expect(
-							JSON.parse(output).hookSpecificOutput.additionalContext,
-						).toContain(`context:repo_${repo}__`)
+						const context = JSON.parse(output).hookSpecificOutput
+							.additionalContext as string
+						// Session start loads the profile; prompts recall only relevant matches.
+						const kind = event === "SessionStart" ? "context" : "match"
+						expect(context).toContain(`${kind}:personal`)
+						expect(context).toContain(`${kind}:repo_${repo}__`)
+						expect(context).not.toContain("noise:")
+						if (event === "UserPromptSubmit")
+							expect(context).not.toContain("context:")
 					}
 				}
 			}
@@ -199,6 +208,26 @@ describe("coding-agent installer", () => {
 
 		expect(second.changed).toBe(false)
 		expect(calls).toEqual(firstCalls)
+
+		// A pulled hook fix is delivered by a plain rerun.
+		const installedRecall = join(
+			home,
+			".config",
+			"ram0-supermemory",
+			"recall.mjs",
+		)
+		writeFileSync(installedRecall, "// stale copy\n")
+		const refreshed = await installAgentIntegrations({
+			home,
+			baseUrl: "https://brain.example.test/",
+			runner,
+			apiKey: "sm_synthetic",
+		})
+		expect(refreshed.changed).toBe(true)
+		expect(calls).toEqual(firstCalls)
+		expect(readFileSync(installedRecall, "utf8")).toBe(
+			readFileSync(new URL("./recall.mjs", import.meta.url), "utf8"),
+		)
 		expect(environment).toContain(
 			"SUPERMEMORY_MCP_URL='https://brain.example.test/mcp'",
 		)

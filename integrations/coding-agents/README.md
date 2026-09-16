@@ -50,9 +50,9 @@ client settings, or command-line argument.
 The generated helper still maps the key into the upstream environment names for
 shells that source it; environment variables take precedence over the files.
 
-Run the installer again with the same URL to make no changes; a rotated key is
-the only thing it refreshes. Use `--force` to refresh the plugin installations or
-repair their registrations.
+Run the installer again with the same URL to make no other changes; a rotated key
+and updated hook scripts are the only things it refreshes. Use `--force` to
+refresh the plugin installations or repair their registrations.
 
 ## Existing Ram0 workstations
 

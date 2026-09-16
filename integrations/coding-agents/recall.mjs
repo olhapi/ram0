@@ -8,6 +8,9 @@ import { join } from "node:path"
 
 import { resolveRepositoryContainer } from "./project-scope.mjs"
 
+// Measured against the gateway: related memories score above 0.72, unrelated prompts peak near 0.71.
+const MIN_PROMPT_SIMILARITY = 0.72
+
 function readJson(path) {
 	try {
 		return JSON.parse(readFileSync(path, "utf8"))
@@ -78,11 +81,21 @@ async function main() {
 					signal: AbortSignal.timeout(4000),
 				})
 				if (!response.ok) return ""
-				const { profile } = await response.json()
-				const facts = [
-					...(Array.isArray(profile?.static) ? profile.static : []),
-					...(Array.isArray(profile?.dynamic) ? profile.dynamic : []),
-				]
+				const { profile, searchResults } = await response.json()
+				// The profile does not vary with the query, so prompts recall only matching memories.
+				const facts = (
+					event.hook_event_name === "UserPromptSubmit"
+						? (Array.isArray(searchResults?.results)
+								? searchResults.results
+								: []
+							)
+								.filter((hit) => hit?.similarity >= MIN_PROMPT_SIMILARITY)
+								.map((hit) => hit.memory)
+						: [
+								...(Array.isArray(profile?.static) ? profile.static : []),
+								...(Array.isArray(profile?.dynamic) ? profile.dynamic : []),
+							]
+				)
 					.filter((value) => typeof value === "string")
 					.slice(0, 10)
 					.map((value) => value.slice(0, 1000))

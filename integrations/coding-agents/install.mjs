@@ -145,13 +145,21 @@ async function readJson(path) {
 	}
 }
 
-async function installRecallHooks(home, configDirectory, apiUrl, mcpUrl) {
+// Hook scripts track the checkout, so a pull followed by a rerun delivers fixes without --force.
+async function syncHookScripts(configDirectory) {
+	let changed = false
 	for (const filename of ["recall.mjs", "project-scope.mjs"]) {
-		await writePrivate(
-			join(configDirectory, filename),
-			await readFile(new URL(filename, import.meta.url), "utf8"),
-		)
+		const path = join(configDirectory, filename)
+		const source = await readFile(new URL(filename, import.meta.url), "utf8")
+		if ((await readFile(path, "utf8").catch(() => null)) === source) continue
+		await writePrivate(path, source)
+		changed = true
 	}
+	return changed
+}
+
+async function installRecallHooks(home, configDirectory, apiUrl, mcpUrl) {
+	await syncHookScripts(configDirectory)
 	const command = `node ${shellQuote(join(configDirectory, "recall.mjs"))}`
 	for (const [directory, filename] of [
 		[".codex", "hooks.json"],
@@ -211,8 +219,14 @@ export async function installAgentIntegrations({
 	}
 	const previous = await readJson(markerFile)
 	if (!force && JSON.stringify(previous) === JSON.stringify(marker)) {
-		const changed = await syncCredentials(home, apiUrl, apiKey)
-		return { changed, environmentFile, markerFile, commands: [] }
+		const scriptsChanged = await syncHookScripts(configDirectory)
+		const credentialsChanged = await syncCredentials(home, apiUrl, apiKey)
+		return {
+			changed: scriptsChanged || credentialsChanged,
+			environmentFile,
+			markerFile,
+			commands: [],
+		}
 	}
 
 	const environment =
