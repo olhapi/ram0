@@ -82,6 +82,27 @@ describe("local Supermemory MCP", () => {
 		})
 	})
 
+	test("keeps personal memory when a client injects the repository containerTag", async () => {
+		const server = createGatewayServer(
+			{ host: "127.0.0.1", port: 0, engineUrl: "http://127.0.0.1:1", apiKey: "gateway-secret", personalContainer: "personal" },
+			backend(),
+		)
+		const baseUrl = await listen(server)
+		const transport = new StreamableHTTPClientTransport(new URL("/mcp", baseUrl), {
+			requestInit: { headers: { Authorization: "Bearer gateway-secret" } },
+		})
+		const client = new Client({ name: "gateway-test", version: "1.0.0" })
+		cleanup.push(() => client.close())
+		await client.connect(transport)
+
+		expect(
+			(await client.callTool({ name: "search_memory", arguments: { query: "deployment", containerTag: "repo_ram0__abc" } })).structuredContent,
+		).toMatchObject({ containers: ["personal", "repo_ram0__abc"] })
+		expect(
+			(await client.callTool({ name: "search_memory", arguments: { query: "deployment", containerTag: "repo_ram0__abc", includePersonal: false } })).structuredContent,
+		).toMatchObject({ containers: ["repo_ram0__abc"] })
+	})
+
 	test("supports on-demand save and explicit forget actions", async () => {
 		const server = createGatewayServer(
 			{ host: "127.0.0.1", port: 0, engineUrl: "http://127.0.0.1:1", apiKey: "gateway-secret", personalContainer: "personal" },

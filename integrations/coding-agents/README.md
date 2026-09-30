@@ -25,7 +25,7 @@ node integrations/coding-agents/install.mjs \
   --base-url https://brain-api.example.com
 ```
 
-The installer pins `codex-supermemory` 1.0.17 and adds the official
+The installer pins `codex-supermemory` 1.0.19 and adds the official
 `supermemoryai/claude-supermemory` marketplace plugin. It keeps Codex's upstream
 `supermemory` MCP proxy and sets only its `SUPERMEMORY_MCP_URL`. It writes a
 non-secret environment helper, recall adapter, scope helper, and an installation

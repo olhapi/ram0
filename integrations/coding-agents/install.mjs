@@ -8,9 +8,9 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-const CODEX_PLUGIN_VERSION = "1.0.17"
+const CODEX_PLUGIN_VERSION = "1.0.19"
 const CLAUDE_PLUGIN_SOURCE = "supermemoryai/claude-supermemory"
-const MARKER_VERSION = 3
+const MARKER_VERSION = 4
 
 function normalizedBaseUrl(value) {
 	let url

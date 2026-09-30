@@ -29,20 +29,25 @@ export function createMemoryMcpServer(backend: MemoryBackend, personalContainer:
 	server.registerTool(
 		"search_memory",
 		{
-			description: "Search personal memory and, when supplied, the current repository memory. Use an explicit containerTag to search only one space.",
+			description: "Search personal memory together with the current repository memory. Pass includePersonal false to search only the given containerTag.",
 			inputSchema: {
 				query: z.string().min(1).max(1000),
 				projectContainer: z.string().min(1).max(100).optional(),
 				containerTag: z.string().min(1).max(100).optional(),
 				limit: z.number().int().min(1).max(50).default(10),
 				includeProfile: z.boolean().default(true),
+				includePersonal: z.boolean().default(true),
 			},
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
-		async ({ query, projectContainer, containerTag, limit, includeProfile }) => {
+		async ({ query, projectContainer, containerTag, limit, includeProfile, includePersonal }) => {
 			try {
+				// Claude Code's plugin proxy injects the repository containerTag, so treat it as an added
+				// scope: replacing personal memory would silently drop most recall.
 				const containers = containerTag
-					? [containerTag]
+					? includePersonal
+						? resolveContainers(containerTag, personalContainer)
+						: [containerTag]
 					: resolveContainers(projectContainer, personalContainer)
 				const result = await recallAcrossScopes(backend, query, containers, { limit, includeProfile })
 				const lines = result.results.map((hit) => `- [${Math.round(hit.score * 100)}% · ${hit.containerTag}] ${hit.text}`)
