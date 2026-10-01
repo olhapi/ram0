@@ -60,7 +60,7 @@ async function defaultRunner(command, args, options = {}) {
 	})
 }
 
-function commandPlan(home, mcpUrl) {
+function commandPlan(home, mcpUrl, force) {
 	return [
 		{
 			command: "npx",
@@ -108,6 +108,22 @@ function commandPlan(home, mcpUrl) {
 			],
 			allowedFailure: /already installed/i,
 		},
+		// Installing is a no-op once present, so updating the reviewed plugin is deliberate.
+		...(force
+			? [
+					{
+						command: "claude",
+						args: [
+							"plugin",
+							"update",
+							"supermemory@supermemory-plugins",
+							"--scope",
+							"user",
+						],
+						allowedFailure: /already (?:up to date|the latest)|not installed/i,
+					},
+				]
+			: []),
 	]
 }
 
@@ -239,7 +255,7 @@ export async function installAgentIntegrations({
 		"fi\n"
 	await writePrivate(environmentFile, environment)
 
-	const commands = commandPlan(home, mcpUrl)
+	const commands = commandPlan(home, mcpUrl, force)
 	for (const step of commands) {
 		const result = await runner(step.command, step.args, { home })
 		if (result.status !== 0 && !step.allowedFailure?.test(result.output)) {

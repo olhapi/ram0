@@ -308,6 +308,41 @@ describe("coding-agent installer", () => {
 		expect(existsSync(join(home, ".codex", "supermemory"))).toBe(false)
 	})
 
+	test("only --force updates the reviewed Claude plugin", async () => {
+		const home = mkdtempSync(join(tmpdir(), "ram0-agent-update-"))
+		cleanup.push(home)
+		const calls: string[][] = []
+		const runner = async (command: string, args: string[]) => {
+			calls.push([command, ...args])
+			return { status: 0, output: "" }
+		}
+		const update = [
+			"claude",
+			"plugin",
+			"update",
+			"supermemory@supermemory-plugins",
+			"--scope",
+			"user",
+		]
+
+		await installAgentIntegrations({
+			home,
+			baseUrl: "https://brain.example.test",
+			runner,
+			apiKey: "",
+		})
+		expect(calls).not.toContainEqual(update)
+
+		await installAgentIntegrations({
+			home,
+			baseUrl: "https://brain.example.test",
+			runner,
+			apiKey: "",
+			force: true,
+		})
+		expect(calls).toContainEqual(update)
+	})
+
 	test("rejects URLs that could persist credentials", async () => {
 		await expect(
 			installAgentIntegrations({

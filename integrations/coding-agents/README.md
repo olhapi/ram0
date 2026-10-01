@@ -51,8 +51,10 @@ The generated helper still maps the key into the upstream environment names for
 shells that source it; environment variables take precedence over the files.
 
 Run the installer again with the same URL to make no other changes; a rotated key
-and updated hook scripts are the only things it refreshes. Use `--force` to
-refresh the plugin installations or repair their registrations.
+and updated hook scripts are the only things it refreshes. Installing a plugin
+that is already present does nothing, so `--force` is what updates the Claude
+plugin to the marketplace's latest version and repairs registrations. Review the
+upstream plugin changes first: they can alter recall scope.
 
 ## Existing Ram0 workstations
 
